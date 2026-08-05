@@ -1,0 +1,15 @@
+{
+  "name": "mosaic",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared 1-second video albums for a group around one event.",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "test": "npm run test --workspace @mosaic/montage && npm run test:db",
+    "test:db": "./supabase/tests/run.sh",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  }
+}

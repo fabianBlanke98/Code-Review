@@ -1,0 +1,19 @@
+{
+  "name": "@mosaic/montage",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pure montage ordering. Shared verbatim by the app and the render worker.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node --test 'test/*.test.ts'",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  }
+}
