@@ -101,29 +101,22 @@ is the cut the user watched, and re-exporting an unchanged album is free.
 
 ## Setup
 
+[SETUP.md](SETUP.md) is the ordered runbook: six steps, each with a checkpoint.
+
 ```bash
-npm install                      # workspace root; generates the lockfile
-
-# database
-psql "$DATABASE_URL" -f supabase/migrations/0001_init.sql
-
-# edge functions — R2 credentials live here and nowhere else
-supabase secrets set R2_ENDPOINT=... R2_BUCKET=... \
-  R2_ACCESS_KEY_ID=... R2_SECRET_ACCESS_KEY=...
-supabase functions deploy sign-upload
-supabase functions deploy media-urls
-
-# worker
-fly secrets set DATABASE_URL=... R2_ENDPOINT=... R2_BUCKET=... \
-  R2_ACCESS_KEY_ID=... R2_SECRET_ACCESS_KEY=...
-fly deploy --config apps/worker/fly.toml
-
-# app
-cp apps/mobile/.env.example apps/mobile/.env   # fill in, then:
-npm run ios --workspace @mosaic/mobile
+npm install
+npm test        # 30 unit tests + 44 database assertions, no accounts needed
+npm run check   # preflight against whatever you have deployed so far
 ```
 
-Pick EU regions for Supabase and R2, and `primary_region = "ams"` for the
+`npm run check` inspects each layer in turn — schema applied, RLS actually on,
+policies present, helpers still SECURITY DEFINER, jobs queue unreachable from
+clients, edge functions live and refusing anonymous callers, R2 credentials
+scoped to the bucket, worker keeping up with the queue. Layers you have not
+configured yet are skipped, not failed, so it is useful from step one. Every
+failure names the fix.
+
+Pick EU regions for Supabase and R2, and keep `primary_region = "ams"` for the
 worker. Clip bytes are personal data belonging to people who did not sign up
 for a US transfer.
 
