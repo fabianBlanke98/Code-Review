@@ -10,11 +10,12 @@ import {
 
 import { DEFAULT_CLIP_SECONDS } from '@mosaic/montage';
 import { useAlbum } from '../../../src/hooks/useAlbum.ts';
-import { uploadClip } from '../../../src/lib/upload.ts';
+import { replaceClip, uploadClip } from '../../../src/lib/upload.ts';
 import { humanError } from '../../../src/lib/supabase.ts';
 
 export default function CameraScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  // `replace` carries the id of a clip being re-shot; without it we append.
+  const { id, replace } = useLocalSearchParams<{ id: string; replace?: string }>();
   const router = useRouter();
   const { album } = useAlbum(id);
 
@@ -80,16 +81,20 @@ export default function CameraScreen() {
         clearTimers();
         setRecording(false);
         setUploading(true);
+        const fileUri = video.path.startsWith('file://') ? video.path : `file://${video.path}`;
         try {
-          await uploadClip({
-            albumId: id,
-            fileUri: video.path.startsWith('file://') ? video.path : `file://${video.path}`,
-            durationMs: clipMs,
-          });
-          // Straight back to the film, where the new clip is now the last one.
+          if (replace) {
+            // Keeps the slot it already had rather than landing at the end.
+            await replaceClip(replace, { fileUri, durationMs: clipMs });
+          } else {
+            await uploadClip({ albumId: id, fileUri, durationMs: clipMs });
+          }
           router.back();
         } catch (error) {
-          Alert.alert('Uploaden mislukt', humanError(error));
+          Alert.alert(
+            replace ? 'Vervangen mislukt' : 'Uploaden mislukt',
+            humanError(error),
+          );
           setUploading(false);
         }
       },
@@ -140,7 +145,9 @@ export default function CameraScreen() {
             ? 'Uploaden…'
             : recording
               ? `${remaining}`
-              : `Tik om ${clipSeconds} seconden op te nemen`}
+              : replace
+                ? `Tik om deze opname over te doen · ${clipSeconds}s`
+                : `Tik om ${clipSeconds} seconden op te nemen`}
         </Text>
 
         <Pressable

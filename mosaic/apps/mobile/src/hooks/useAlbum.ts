@@ -24,6 +24,7 @@ interface ClipRow {
   album_id: string;
   author_id: string;
   sequence: number;
+  revision: number;
   duration_ms: number | null;
   status: AlbumClip['status'];
 }
@@ -47,7 +48,7 @@ export function useAlbum(albumId: string) {
 
   // Signed URLs expire; don't refetch them on every realtime tick.
   const urlsFetchedAt = useRef(0);
-  const readyCount = useRef(0);
+  const mediaFingerprint = useRef('');
 
   const refresh = useCallback(async () => {
     try {
@@ -55,7 +56,7 @@ export function useAlbum(albumId: string) {
         supabase.from('albums').select('id, title, clip_seconds').eq('id', albumId).maybeSingle(),
         supabase
           .from('clips')
-          .select('id, album_id, author_id, sequence, duration_ms, status')
+          .select('id, album_id, author_id, sequence, revision, duration_ms, status')
           .eq('album_id', albumId)
           .order('sequence', { ascending: true }),
         supabase.from('memberships').select('user_id, role, users(display_name)').eq('album_id', albumId),
@@ -92,15 +93,21 @@ export function useAlbum(albumId: string) {
           authorId: row.author_id,
           authorName: nameMap[row.author_id] ?? 'Onbekend',
           sequence: row.sequence,
+          revision: row.revision,
           durationMs: row.duration_ms ?? 3000,
           status: row.status,
         })),
       );
 
-      const ready = rows.filter((r) => r.status === 'ready').length;
-      const stale = Date.now() - urlsFetchedAt.current > 45 * 60 * 1000;
-      if (ready > 0 && (stale || ready !== readyCount.current)) {
-        readyCount.current = ready;
+      // Fingerprint over id+revision, not just the count: replacing a clip
+      // leaves the count identical while the URL behind it has moved.
+      const fingerprint = rows
+        .filter((r) => r.status === 'ready')
+        .map((r) => `${r.id}:${r.revision}`)
+        .join(',');
+      const expired = Date.now() - urlsFetchedAt.current > 45 * 60 * 1000;
+      if (fingerprint && (expired || fingerprint !== mediaFingerprint.current)) {
+        mediaFingerprint.current = fingerprint;
         const { data: signed } = await supabase.functions.invoke('media-urls', {
           body: { albumId },
         });

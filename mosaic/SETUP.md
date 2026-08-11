@@ -17,7 +17,7 @@ npm install
 npm test
 ```
 
-That runs 15 montage unit tests and 45 database assertions against a throwaway
+That runs 16 montage unit tests and 53 database assertions against a throwaway
 Postgres cluster it boots and deletes itself. No accounts, no cost. If this is
 red, stop — nothing downstream will work.
 
@@ -182,6 +182,7 @@ one within a few seconds, in the order the clips were taken. Export from either.
 | Clips stay grey in the grid | Worker not consuming — `fly logs -a mosaic-worker` |
 | Export fails but playback works | A clip escaped normalization; concat needs identical streams |
 | Invite link says expired | Links last 14 days and 20 uses by design; make a new one |
+| A replaced clip still shows the old take | Signed URLs are keyed on `id:revision`; pull to refresh |
 
 ---
 

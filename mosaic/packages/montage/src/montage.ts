@@ -31,15 +31,16 @@ export function buildMontage(clips: readonly MontageClip[]): Montage {
 }
 
 /**
- * Identity of a cut: the resolved sequence and each clip's length.
+ * Identity of a cut: the resolved sequence, each clip's revision and length.
  *
- * Adding a clip changes the hash, which is what makes a finished export
- * reusable right up until the moment somebody adds to the film.
+ * The revision is what keeps a re-shot clip honest. Replacing a take leaves the
+ * id and the length untouched, so without it the stale export would be handed
+ * back as though nothing had changed.
  */
 export function specHash(items: readonly MontageItem[]): string {
   const canonical = [
     'mosaic-film-v2',
-    ...items.map((item) => `${item.clip.id}:${item.durationMs}`),
+    ...items.map((item) => `${item.clip.id}:${item.clip.revision}:${item.durationMs}`),
   ].join('|');
 
   return sha256Hex(canonical);

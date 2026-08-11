@@ -10,6 +10,7 @@ function clip(sequence: number, extra: Partial<MontageClip> = {}): MontageClip {
     sequence,
     authorId: extra.authorId ?? 'anna',
     durationMs: extra.durationMs ?? 3000,
+    revision: extra.revision ?? 1,
     ...extra,
   };
 }
@@ -102,6 +103,14 @@ describe('specHash', () => {
   it('changes when a clip length changes', () => {
     const before = buildMontage(clips).specHash;
     const after = buildMontage([clip(1), clip(2), clip(3, { durationMs: 1000 })]).specHash;
+    assert.notEqual(before, after);
+  });
+
+  it('changes when a clip is re-shot, even though id and length do not', () => {
+    // The trap this guards: a replacement keeps its id, its slot and its
+    // length, so without the revision the previous export would be reused.
+    const before = buildMontage(clips).specHash;
+    const after = buildMontage([clip(1), clip(2), clip(3, { revision: 2 })]).specHash;
     assert.notEqual(before, after);
   });
 

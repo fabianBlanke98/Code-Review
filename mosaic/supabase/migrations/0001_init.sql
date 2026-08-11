@@ -71,6 +71,9 @@ create table clips (
   duration_ms        int check (duration_ms between 200 and 5000),
   -- Position in the film. Assigned by a trigger, never by the client.
   sequence           bigint not null,
+  -- Bumped every time the author re-shoots this slot. Storage keys carry it, so
+  -- a replacement never collides with a cached copy of what it replaced.
+  revision           int not null default 1 check (revision > 0),
   width              int,
   height             int,
   status             text not null default 'uploading'
@@ -324,6 +327,8 @@ begin
   new.created_at  := old.created_at;
   -- A clip's place in the film is fixed the moment it is added.
   new.sequence    := old.sequence;
+  -- Re-shooting goes through replace_own_clip(), which is what moves these.
+  new.revision    := old.revision;
 
   if not (old.status = 'uploading' and new.status = 'processing') then
     new.status := old.status;
@@ -459,6 +464,7 @@ returns table (
   id uuid,
   author_id uuid,
   sequence bigint,
+  revision int,
   duration_ms int,
   storage_key text
 )
@@ -475,7 +481,7 @@ begin
   end if;
 
   return query
-    select c.id, c.author_id, c.sequence, c.duration_ms, c.storage_key
+    select c.id, c.author_id, c.sequence, c.revision, c.duration_ms, c.storage_key
     from clips c
     where c.album_id = p_album
       and c.status = 'ready'
@@ -623,6 +629,50 @@ $$;
 -- Grants
 -- ---------------------------------------------------------------------------
 
+-- Re-shoot a slot without losing it.
+--
+-- Author-only, like deletion: an admin swapping somebody else's clip would be
+-- putting words in their mouth, which is a different thing entirely from taking
+-- an unwanted clip out of the film.
+--
+-- The clip keeps its `sequence`, so the replacement lands exactly where the
+-- original was rather than at the end. It drops back to `uploading` for the few
+-- seconds the new take needs to arrive and normalize; during that window the
+-- author still sees it (RLS shows non-ready clips to their author) and everyone
+-- else briefly does not. Showing half a replacement would be worse.
+create function public.replace_own_clip(p_clip uuid)
+returns text
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_clip clips;
+  v_key  text;
+begin
+  select * into v_clip from clips where id = p_clip and deleted_at is null for update;
+
+  if not found or v_clip.author_id <> auth.uid() then
+    raise exception 'not_clip_author' using errcode = '42501';
+  end if;
+  if not app.can_contribute(v_clip.album_id) then
+    raise exception 'not_a_member' using errcode = '42501';
+  end if;
+
+  v_key := format('albums/%s/raw/%s-r%s', v_clip.album_id, v_clip.id, v_clip.revision + 1);
+
+  update clips
+     set revision = revision + 1,
+         storage_key = v_key,
+         thumb_key = null,
+         status = 'uploading',
+         failure_reason = null
+   where id = p_clip;
+
+  return v_key;
+end
+$$;
+
 grant usage on schema public to anon, authenticated;
 grant usage on schema app to anon, authenticated;
 
@@ -639,3 +689,4 @@ grant execute on function public.peek_invite(text) to anon, authenticated;
 grant execute on function public.album_montage_clips(uuid) to authenticated;
 grant execute on function public.request_render(uuid, jsonb, text) to authenticated;
 grant execute on function public.delete_own_clip(uuid) to authenticated;
+grant execute on function public.replace_own_clip(uuid) to authenticated;

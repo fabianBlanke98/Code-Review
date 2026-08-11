@@ -66,7 +66,7 @@ Deno.serve(async (request) => {
 
   const { data: clip, error } = await supabase
     .from('clips')
-    .select('id, album_id, author_id, status')
+    .select('id, album_id, author_id, status, revision')
     .eq('id', clipId)
     .maybeSingle();
 
@@ -76,8 +76,10 @@ Deno.serve(async (request) => {
   if (clip.status !== 'uploading') return json({ error: 'clip_already_uploaded' }, 409);
 
   // Raw uploads are namespaced separately from normalized output; the worker
-  // deletes the raw object once it has produced the normalized one.
-  const key = `albums/${clip.album_id}/raw/${clip.id}`;
+  // deletes the raw object once it has produced the normalized one. The
+  // revision keeps a re-shot take from overwriting the one it replaces before
+  // the new one has been accepted.
+  const key = `albums/${clip.album_id}/raw/${clip.id}-r${clip.revision}`;
   const target = new URL(`${R2_ENDPOINT}/${R2_BUCKET}/${key}`);
   target.searchParams.set('X-Amz-Expires', String(UPLOAD_TTL_SECONDS));
 

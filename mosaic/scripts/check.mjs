@@ -73,7 +73,7 @@ const SECURITY_DEFINER_FUNCTIONS = [
   ['app', 'can_contribute'], ['app', 'shares_album_with'],
   ['public', 'redeem_invite'], ['public', 'peek_invite'],
   ['public', 'album_montage_clips'], ['public', 'request_render'],
-  ['public', 'delete_own_clip'],
+  ['public', 'delete_own_clip'], ['public', 'replace_own_clip'],
 ];
 
 const EXPECTED_TRIGGERS = [

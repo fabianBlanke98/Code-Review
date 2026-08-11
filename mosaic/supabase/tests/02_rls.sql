@@ -155,6 +155,41 @@ select delete_own_clip(:'clip_c1');
 select tests.eq('the author can delete their own clip',
   (select count(*) from clips where album_id = :'album'), 1::bigint);
 
+-- === replacing your own take ===============================================
+-- Re-shooting keeps the slot; it does not append a second clip.
+select tests.as_user(:'alice');
+select tests.raises(
+  'you cannot replace someone else''s clip',
+  format('select replace_own_clip(%L)', :'clip_b1'),
+  'not_clip_author');
+
+reset role;
+select tests.eq('sanity: b1 starts at revision 1',
+  (select revision from clips where id = :'clip_b1'), 1::bigint);
+set role authenticated;
+
+select tests.as_user(:'bob');
+select tests.eq('replacing hands back a fresh upload key',
+  (select replace_own_clip(:'clip_b1')),
+  'albums/' || :'album' || '/raw/' || :'clip_b1' || '-r2');
+
+reset role;
+select tests.eq('replacing bumps the revision',
+  (select revision from clips where id = :'clip_b1'), 2::bigint);
+select tests.eq('replacing reopens the clip for upload',
+  (select status from clips where id = :'clip_b1'), 'uploading');
+select tests.eq('replacing clears the stale thumbnail',
+  (select count(*) from clips where id = :'clip_b1' and thumb_key is null), 1::bigint);
+select tests.eq('replacing does not add a second clip',
+  (select count(*) from clips where album_id = :'album' and deleted_at is null), 1::bigint);
+set role authenticated;
+
+-- Put b1 back the way the later assertions expect it.
+reset role;
+update clips set status = 'ready', storage_key = 'clips/b1.mp4', revision = 1
+ where id = :'clip_b1';
+set role authenticated;
+
 -- === column protection =====================================================
 select tests.as_user(:'bob');
 insert into clips (id, album_id, author_id, storage_key, duration_ms)
@@ -172,6 +207,12 @@ update clips set sequence = 999999 where id = :'clip_b1';
 reset role;
 select tests.eq('a clip cannot be moved in the film after the fact',
   (select count(*) from clips where id = :'clip_b1' and sequence = 999999), 0::bigint);
+set role authenticated;
+
+update clips set revision = 99 where id = :'clip_b1';
+reset role;
+select tests.eq('revision is not client-writable either',
+  (select revision from clips where id = :'clip_b1'), 1::bigint);
 set role authenticated;
 
 update clips set storage_key = 'clips/hijacked.mp4' where id = :'clip_b1';

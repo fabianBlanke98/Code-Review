@@ -20,6 +20,11 @@ export interface MontageClip {
   sequence: number;
   authorId: string;
   durationMs: number;
+  /**
+   * Bumped when the author re-shoots this slot. It is part of the film's
+   * identity: without it a replacement would reuse the previous export.
+   */
+  revision: number;
 }
 
 export interface MontageItem {

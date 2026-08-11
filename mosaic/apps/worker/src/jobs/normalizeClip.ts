@@ -11,21 +11,24 @@ interface ClipRow {
   album_id: string;
   storage_key: string;
   status: string;
+  revision: number;
   /** The group's chosen clip length; every recording is cut to it. */
   clip_seconds: number;
 }
 
-export const normalizedKey = (albumId: string, clipId: string): string =>
-  `albums/${albumId}/clips/${clipId}/v${NORMALIZED_PROFILE_VERSION}.mp4`;
+// The revision is in the key so a replacement can never be served from a cache
+// of the take it replaced, and so a failed replacement leaves the old one intact.
+export const normalizedKey = (albumId: string, clipId: string, revision: number): string =>
+  `albums/${albumId}/clips/${clipId}/v${NORMALIZED_PROFILE_VERSION}-r${revision}.mp4`;
 
-export const thumbKey = (albumId: string, clipId: string): string =>
-  `albums/${albumId}/clips/${clipId}/thumb.jpg`;
+export const thumbKey = (albumId: string, clipId: string, revision: number): string =>
+  `albums/${albumId}/clips/${clipId}/thumb-r${revision}.jpg`;
 
 export async function normalizeClip(payload: Record<string, unknown>): Promise<void> {
   const clipId = String(payload.clip_id);
 
   const { rows } = await pool.query<ClipRow>(
-    `select c.id, c.album_id, c.storage_key, c.status, a.clip_seconds
+    `select c.id, c.album_id, c.storage_key, c.status, c.revision, a.clip_seconds
        from clips c
        join albums a on a.id = c.album_id
       where c.id = $1 and c.deleted_at is null`,
@@ -47,8 +50,8 @@ export async function normalizeClip(payload: Record<string, unknown>): Promise<v
     await normalize(original, normalized, info.hasAudio, clip.clip_seconds * 1000);
     await thumbnail(normalized, thumb);
 
-    const outKey = normalizedKey(clip.album_id, clip.id);
-    const outThumbKey = thumbKey(clip.album_id, clip.id);
+    const outKey = normalizedKey(clip.album_id, clip.id, clip.revision);
+    const outThumbKey = thumbKey(clip.album_id, clip.id, clip.revision);
     await upload(outKey, normalized, 'video/mp4');
     await upload(outThumbKey, thumb, 'image/jpeg');
 
@@ -73,6 +76,16 @@ export async function normalizeClip(payload: Record<string, unknown>): Promise<v
     // benefit — the normalized copy is the only one anything reads.
     if (clip.storage_key !== outKey) {
       await remove(clip.storage_key).catch(() => {});
+    }
+
+    // A replacement leaves the previous take orphaned. Only sweep it once the
+    // new one is safely `ready`, so a failed replace still has something to
+    // fall back on.
+    if (clip.revision > 1) {
+      await Promise.all([
+        remove(normalizedKey(clip.album_id, clip.id, clip.revision - 1)).catch(() => {}),
+        remove(thumbKey(clip.album_id, clip.id, clip.revision - 1)).catch(() => {}),
+      ]);
     }
   } catch (error) {
     await pool.query(

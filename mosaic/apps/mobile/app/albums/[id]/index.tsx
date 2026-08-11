@@ -60,17 +60,25 @@ export default function GroupFilm() {
     const isMine = clip.authorId === session?.user.id;
     const options: { label: string; destructive?: boolean; run: () => Promise<void> }[] = [];
 
-    // Deleting is author-only; the database enforces it either way, but
+    // Both of these are author-only; the database enforces it either way, but
     // offering a button that silently does nothing is worse than no button.
     if (isMine) {
-      options.push({
-        label: 'Verwijder mijn clip',
-        destructive: true,
-        run: async () => {
-          await supabase.rpc('delete_own_clip', { p_clip: clip.id });
-          await refresh();
+      options.push(
+        {
+          label: 'Opnieuw opnemen',
+          run: async () => {
+            router.push(`/albums/${id}/camera?replace=${clip.id}`);
+          },
         },
-      });
+        {
+          label: 'Verwijder mijn clip',
+          destructive: true,
+          run: async () => {
+            await supabase.rpc('delete_own_clip', { p_clip: clip.id });
+            await refresh();
+          },
+        },
+      );
     }
 
     if (album?.role === 'admin' && !isMine) {
@@ -167,7 +175,7 @@ export default function GroupFilm() {
           </Text>
         }
         renderItem={({ item, index }) => (
-          <Pressable style={styles.tile} onLongPress={() => clipActions(item)}>
+          <View style={styles.tile}>
             {item.thumbUrl ? (
               <Image source={{ uri: item.thumbUrl }} style={styles.thumb} />
             ) : (
@@ -180,7 +188,17 @@ export default function GroupFilm() {
             <Text style={styles.tileMeta} numberOfLines={1}>
               {index + 1}. {item.authorName}
             </Text>
-          </Pressable>
+            {(item.authorId === session?.user.id || album?.role === 'admin') && (
+              <Pressable
+                style={styles.tileMenu}
+                hitSlop={8}
+                accessibilityLabel="Opties voor deze clip"
+                onPress={() => clipActions(item)}
+              >
+                <Text style={styles.tileMenuText}>•••</Text>
+              </Pressable>
+            )}
+          </View>
         )}
       />
 
@@ -207,6 +225,18 @@ const styles = StyleSheet.create({
   actionText: { fontWeight: '600', fontSize: 14 },
   actionPrimaryText: { color: '#fff' },
   tile: { flex: 1 / 3, marginBottom: 4 },
+  tileMenu: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tileMenuText: { color: '#fff', fontSize: 11, lineHeight: 12, fontWeight: '700' },
   thumb: { width: '100%', aspectRatio: 9 / 16, borderRadius: 8, backgroundColor: '#e5e5e3' },
   thumbPlaceholder: { alignItems: 'center', justifyContent: 'center' },
   thumbPlaceholderText: { fontSize: 12, color: '#999' },

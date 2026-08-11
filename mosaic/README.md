@@ -27,8 +27,8 @@ Be precise about this before trusting any of it.
 
 | | |
 |---|---|
-| `./supabase/tests/run.sh` | 45 assertions against a real Postgres 16 cluster |
-| `npm test --workspace @mosaic/montage` | 15 unit tests |
+| `./supabase/tests/run.sh` | 53 assertions against a real Postgres 16 cluster |
+| `npm test --workspace @mosaic/montage` | 16 unit tests |
 | `npx tsc --noEmit` in `packages/montage` | clean |
 
 **Written but never executed:** the ffmpeg worker (no ffmpeg or Docker in the
@@ -70,13 +70,21 @@ In-app playback is two `expo-video` players leapfrogging: while one plays, the
 other is already buffering the next clip. Server rendering happens only on
 export. Getting this backwards makes every scrub cost an encode.
 
-### 3. Hiding is not deleting
+### 3. Your own footage is yours; the film is the group's
 
-Only a clip's author can delete it. A group admin can *hide* it, which takes it
-out of the film but leaves both the row and the object in R2 untouched — the
-author still sees it in their own library. No admin action can reach another
-person's media, which keeps the failure mode of a group argument at "awkward"
-rather than "irreversible".
+Three different verbs, three different owners:
+
+- **Delete** — author only. The clip and its slot both go.
+- **Replace** — author only. A fresh take drops into the same slot, so a bad
+  clip does not cost you your place in the film. The clip's `revision` moves,
+  which is what stops a cached export being handed back as though nothing
+  changed.
+- **Hide** — group admin. Takes a clip out of the film without touching the row
+  or the object in R2; the author still sees it in their own library.
+
+No admin action can reach another person's media, and no admin can swap what
+somebody else filmed for something else. That keeps the failure mode of a group
+argument at "awkward" rather than "irreversible".
 
 ## How the film is assembled
 
@@ -108,7 +116,7 @@ repeat export is free, and adding one clip invalidates it immediately.
 
 ```bash
 npm install
-npm test        # 15 unit tests + 45 database assertions, no accounts needed
+npm test        # 16 unit tests + 53 database assertions, no accounts needed
 npm run check   # preflight against whatever you have deployed so far
 ```
 
