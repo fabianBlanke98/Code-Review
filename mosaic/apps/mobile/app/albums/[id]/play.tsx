@@ -25,7 +25,12 @@ export default function PlayScreen() {
 
   return (
     <View style={styles.container}>
-      <MontagePlayer items={montage.items} urls={urls} onFinished={() => router.back()} />
+      <MontagePlayer
+        items={montage.items}
+        urls={urls}
+        crossfadeMs={montage.crossfadeMs}
+        onFinished={() => router.back()}
+      />
       <Pressable style={styles.close} onPress={() => router.back()}>
         <Text style={styles.closeText}>Sluiten</Text>
       </Pressable>

@@ -10,6 +10,16 @@ export const MIN_CLIP_MS = 400;
 
 export const MAX_CLIP_MS = 5000;
 
+/** How long one clip dissolves into the next. */
+export const CROSSFADE_MS = 400;
+
+/**
+ * A dissolve may never eat more than a quarter of a clip — on a one-second
+ * take a 400ms fade would leave almost no clip to see.
+ */
+export const crossfadeFor = (clipMs: number): number =>
+  Math.min(CROSSFADE_MS, Math.floor(clipMs * 0.25));
+
 /** A clip as far as the film is concerned. */
 export interface MontageClip {
   id: string;
@@ -34,6 +44,9 @@ export interface MontageItem {
 
 export interface Montage {
   items: MontageItem[];
+  /** 0 when there is nothing to dissolve into. */
+  crossfadeMs: number;
+  /** Runtime after the dissolves have overlapped their neighbours. */
   totalDurationMs: number;
   clipIds: string[];
   /** Stable identity of this cut; equal clips in equal order => equal hash. */

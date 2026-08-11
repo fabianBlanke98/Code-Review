@@ -11,7 +11,7 @@
     "lan": "node apps/lan/server.mjs",
     "test": "npm run test --workspace @mosaic/montage && npm run test:db && npm run test:lan",
     "test:db": "./supabase/tests/run.sh",
-    "test:lan": "./apps/lan/test.sh",
+    "test:lan": "node --test apps/lan/timing.test.mjs && ./apps/lan/test.sh",
     "check": "node scripts/check.mjs",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },

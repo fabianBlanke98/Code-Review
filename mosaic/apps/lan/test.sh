@@ -6,7 +6,9 @@ set -euo pipefail
 #   ./apps/lan/test.sh
 BASE="http://127.0.0.1:8788"
 export MOSAIC_DATA=$(mktemp -d)
-PORT=8788 node apps/lan/server.mjs >/tmp/lan.log 2>&1 &
+# Plain http for the API checks so curl needs no certificate handling; the
+# https path gets its own check at the end.
+MOSAIC_HTTP=1 PORT=8788 node apps/lan/server.mjs >/tmp/lan.log 2>&1 &
 SRV=$!
 trap 'kill $SRV 2>/dev/null || true; rm -rf "$MOSAIC_DATA"' EXIT
 for i in $(seq 1 40); do curl -sf "$BASE/" >/dev/null 2>&1 && break; sleep 0.25; done
@@ -82,5 +84,19 @@ sleep 1
 add Joris >/dev/null
 wait $SSEPID
 [ "$(grep -c '^data: ' /tmp/sse2.txt)" -ge 2 ] && ok "live push reaches a second viewer" || bad "no live push"
+
+# --- https: without it a phone will not let the page use its camera, and the
+# recording cannot stop by itself.
+if command -v openssl >/dev/null 2>&1; then
+  MOSAIC_DATA=$(mktemp -d) PORT=8790 node apps/lan/server.mjs >/tmp/lan-tls.log 2>&1 &
+  TLS=$!
+  for i in $(seq 1 40); do curl -skf "https://127.0.0.1:8790/" >/dev/null 2>&1 && break; sleep 0.25; done
+  curl -skf "https://127.0.0.1:8790/" | grep -q "Eén film, samen" \
+    && ok "https serves the page (camera allowed, recording self-stops)" || bad "https"
+  grep -q "certificaat" /tmp/lan-tls.log && ok "startup explains the certificate warning" || bad "tls notice"
+  kill $TLS 2>/dev/null || true
+else
+  printf '  skip openssl absent — https path not exercised\n'
+fi
 
 echo "  --- all LAN server checks passed ---"

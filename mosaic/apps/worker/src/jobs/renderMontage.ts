@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { pool } from '../db.ts';
-import { concat } from '../ffmpeg.ts';
+import { concat, crossfade, CROSSFADE_CLIP_LIMIT } from '../ffmpeg.ts';
 import { download, upload } from '../storage.ts';
 
 /**
@@ -12,6 +12,8 @@ import { download, upload } from '../storage.ts';
  * recomputing it, so the export can never differ from what people watched.
  */
 interface ResolvedSpec {
+  /** 0 cuts hard; anything else dissolves each clip into the next. */
+  crossfadeMs?: number;
   items: Array<{ clipId: string; durationMs: number }>;
 }
 
@@ -59,6 +61,7 @@ export async function renderMontage(payload: Record<string, unknown>): Promise<v
     const keyById = new Map(clipRows.map((r) => [r.id, r.storage_key]));
 
     const segments: string[] = [];
+    const kept: ResolvedSpec['items'] = [];
     let index = 0;
 
     for (const item of render.spec.items) {
@@ -67,17 +70,31 @@ export async function renderMontage(payload: Record<string, unknown>): Promise<v
       const segment = path.join(work, `${String(index++).padStart(4, '0')}.mp4`);
       await download(key, segment);
       segments.push(segment);
+      kept.push(item);
     }
 
     if (segments.length === 0) throw new Error('every clip in this film has since been removed');
 
     const output = path.join(work, 'film.mp4');
-    await concat(segments, output, work);
+
+    // Dissolving costs a full re-encode — xfade has to blend real frames, so
+    // the concat stream-copy shortcut does not apply. That is the price of the
+    // export matching what people watched in the app. Past the limit the
+    // filter graph stops paying for itself and hard cuts take over.
+    const fadeMs = render.spec.crossfadeMs ?? 0;
+    if (fadeMs > 50 && segments.length > 1 && segments.length <= CROSSFADE_CLIP_LIMIT) {
+      await crossfade(segments, kept.map((item) => item.durationMs), fadeMs, output);
+    } else {
+      await concat(segments, output, work);
+    }
 
     const outputKey = `albums/${render.album_id}/renders/${render.spec_hash}.mp4`;
     await upload(outputKey, output, 'video/mp4');
 
-    const durationMs = render.spec.items.reduce((sum, item) => sum + item.durationMs, 0);
+    // Each dissolve overlaps two clips, so the film is shorter than its parts.
+    const durationMs =
+      kept.reduce((sum, item) => sum + item.durationMs, 0) -
+      (render.spec.crossfadeMs ?? 0) * Math.max(0, kept.length - 1);
 
     await pool.query(
       `update renders set status = 'ready', output_key = $2, duration_ms = $3 where id = $1`,

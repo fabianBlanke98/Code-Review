@@ -1,4 +1,4 @@
-import type { Montage, MontageClip, MontageItem } from './types.ts';
+import { crossfadeFor, type Montage, type MontageClip, type MontageItem } from './types.ts';
 import { sha256Hex } from './sha256.ts';
 
 /**
@@ -22,9 +22,15 @@ export function buildMontage(clips: readonly MontageClip[]): Montage {
     durationMs: clip.durationMs,
   }));
 
+  // Every dissolve overlaps two clips, so the film is shorter than the sum of
+  // its parts. Report the length people will actually sit through.
+  const crossfadeMs = items.length > 1 ? crossfadeFor(items[0].durationMs) : 0;
+  const rawMs = items.reduce((sum, item) => sum + item.durationMs, 0);
+
   return {
     items,
-    totalDurationMs: items.reduce((sum, item) => sum + item.durationMs, 0),
+    crossfadeMs,
+    totalDurationMs: rawMs - crossfadeMs * Math.max(0, items.length - 1),
     clipIds: ordered.map((clip) => clip.id),
     specHash: specHash(items),
   };
@@ -39,7 +45,7 @@ export function buildMontage(clips: readonly MontageClip[]): Montage {
  */
 export function specHash(items: readonly MontageItem[]): string {
   const canonical = [
-    'mosaic-film-v2',
+    'mosaic-film-v3',
     ...items.map((item) => `${item.clip.id}:${item.clip.revision}:${item.durationMs}`),
   ].join('|');
 

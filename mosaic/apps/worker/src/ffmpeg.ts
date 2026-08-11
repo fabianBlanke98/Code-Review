@@ -154,6 +154,77 @@ export async function thumbnail(input: string, output: string): Promise<void> {
   ]);
 }
 
+/** Beyond this the xfade filter graph stops being worth its cost. */
+export const CROSSFADE_CLIP_LIMIT = 120;
+
+/**
+ * Where each dissolve starts, in the accumulated stream's own timeline.
+ *
+ * `xfade=offset=T` is measured against the running result, not the clip being
+ * joined, and every dissolve overlaps two clips — so the film gets shorter as
+ * it grows and the offsets are not simply cumulative durations. Getting this
+ * wrong yields a film that drifts further out of step with every clip.
+ */
+export function xfadeOffsets(durationsMs: readonly number[], fadeMs: number): number[] {
+  const offsets: number[] = [];
+  let lengthMs = durationsMs[0];
+  for (let i = 1; i < durationsMs.length; i++) {
+    offsets.push(Number(((lengthMs - fadeMs) / 1000).toFixed(3)));
+    lengthMs += durationsMs[i] - fadeMs;
+  }
+  return offsets;
+}
+
+/**
+ * Join segments with a dissolve between each pair.
+ *
+ * Unlike `concat` this re-encodes: blending frames is the point, and there is
+ * no stream-copy path that produces a dissolve. Ingest normalization still
+ * earns its keep — xfade refuses mismatched streams just as concat does.
+ */
+export async function crossfade(
+  segments: string[],
+  durationsMs: readonly number[],
+  fadeMs: number,
+  output: string,
+): Promise<void> {
+  if (segments.length < 2) throw new Error('a dissolve needs at least two clips');
+
+  const fadeSeconds = (fadeMs / 1000).toFixed(3);
+  const offsets = xfadeOffsets(durationsMs, fadeMs);
+  const filters: string[] = [];
+
+  let video = '0:v';
+  let audio = '0:a';
+
+  for (let i = 1; i < segments.length; i++) {
+    filters.push(
+      `[${video}][${i}:v]xfade=transition=fade:duration=${fadeSeconds}:offset=${offsets[i - 1]}[v${i}]`,
+      `[${audio}][${i}:a]acrossfade=d=${fadeSeconds}[a${i}]`,
+    );
+    video = `v${i}`;
+    audio = `a${i}`;
+  }
+
+  await run('ffmpeg', [
+    '-y', '-hide_banner', '-loglevel', 'error',
+    ...segments.flatMap((file) => ['-i', file]),
+    '-filter_complex', filters.join(';'),
+    '-map', `[${video}]`, '-map', `[${audio}]`,
+    '-c:v', PROFILE.videoCodec,
+    '-profile:v', PROFILE.profile,
+    '-level:v', PROFILE.level,
+    '-pix_fmt', PROFILE.pixelFormat,
+    '-preset', 'veryfast', '-crf', '23',
+    '-c:a', PROFILE.audioCodec,
+    '-ar', String(PROFILE.audioRate),
+    '-ac', String(PROFILE.audioChannels),
+    '-b:a', '128k',
+    '-movflags', '+faststart',
+    output,
+  ]);
+}
+
 /**
  * Join pre-normalized segments without re-encoding.
  *

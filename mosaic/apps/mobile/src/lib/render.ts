@@ -24,6 +24,7 @@ export async function requestRender(
   const montage = buildMontage(clips);
 
   const resolved = {
+    crossfadeMs: montage.crossfadeMs,
     items: montage.items.map((item) => ({
       clipId: item.clip.id,
       durationMs: item.durationMs,

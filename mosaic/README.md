@@ -46,9 +46,10 @@ Be precise about this before trusting any of it.
 | | |
 |---|---|
 | `./supabase/tests/run.sh` | 53 assertions against a real Postgres 16 cluster |
-| `npm test --workspace @mosaic/montage` | 16 unit tests |
+| `npm test --workspace @mosaic/montage` | 18 unit tests |
 | `npx tsc --noEmit` in `packages/montage` | clean |
-| `./apps/lan/test.sh` | 16 end-to-end checks against the running LAN server |
+| `./apps/lan/test.sh` | 18 end-to-end checks against the running LAN server |
+| `node --test apps/lan/timing.test.mjs` | 6 checks on the crossfade arithmetic |
 
 **Written but never executed:** the ffmpeg worker (no ffmpeg or Docker in the
 build environment) and the Expo client (no simulator, no Supabase project, no
@@ -89,11 +90,22 @@ coordinates stop travelling with a holiday clip.
 If concat ever needs `-c:v libx264` to succeed, a clip escaped normalization.
 Fix it upstream; do not "fix" it by re-encoding the export.
 
+**The dissolve is the one thing that does cost an encode.** `xfade` has to blend
+real frames, so a crossfaded export cannot be a stream copy — that is the price
+of the export matching what people watched, and it is worth paying. Ingest
+normalization still earns its keep, because xfade refuses mismatched streams
+exactly as concat does. Above 120 clips the filter graph stops paying for itself
+and hard cuts take over.
+
 ### 2. Preview never renders
 
-In-app playback is two `expo-video` players leapfrogging: while one plays, the
-other is already buffering the next clip. Server rendering happens only on
-export. Getting this backwards makes every scrub cost an encode.
+In-app playback is two `expo-video` players *overlapping*: the next clip starts
+underneath while the current one is still on screen, and for the length of the
+dissolve both are visible and audible. Server rendering happens only on export.
+Getting this backwards makes every scrub cost an encode.
+
+The dissolve is capped at a quarter of a clip, so a one-second take gets 250ms
+rather than 400ms and still has something left to look at.
 
 ### 3. Your own footage is yours; the film is the group's
 

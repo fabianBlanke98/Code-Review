@@ -136,11 +136,7 @@
 
   .player { position:fixed; inset:0; background:#000; display:none; z-index:40; }
   .player.open { display:block; }
-  .player video {
-    position:absolute; inset:0; width:100%; height:100%; object-fit:cover;
-    opacity:0; transition:opacity .08s linear;
-  }
-  .player video.live { opacity:1; }
+  .player video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:0; }
   .progress {
     position:absolute; top:14px; left:14px; right:14px; display:flex; gap:3px;
     z-index:2; pointer-events:none;
@@ -228,7 +224,8 @@
       <div class="reel" id="reel"></div>
       <div class="empty" id="empty">
         <strong>Nog leeg</strong>
-        Neem de eerste op. Alles wat daarna wordt gefilmd komt er achteraan bij.
+        Tik op de knop onderin. Hij neemt precies de afgesproken tijd op en stopt
+        vanzelf — alles wat daarna wordt gefilmd komt er achteraan bij.
       </div>
     </section>
 
@@ -262,6 +259,7 @@
 const el = (id) => document.getElementById(id);
 const CLIP_SECONDS_OPTIONS = [1, 2, 3, 4, 5];
 const ARC = 295.3;
+const FALLBACK_CROSSFADE_MS = 400;
 
 const store = {
   get name() { return localStorage.getItem('mosaic-name') ?? ''; },
@@ -363,8 +361,8 @@ function renderFilm() {
   el('playBtn').disabled = clips.length === 0;
 
   el('exportNote').innerHTML = group.canExport
-    ? `<strong>De aftermovie.</strong> <a href="/api/groups/${group.code}/film" download="${group.title}.mp4">Download alles als één MP4</a> — de laptop plakt de opnames aan elkaar. Even geduld bij veel clips.`
-    : '<strong>Geen ffmpeg op de laptop.</strong> Afspelen werkt, maar één MP4 maken lukt niet. Installeer ffmpeg en start de server opnieuw.';
+    ? `<strong>De aftermovie.</strong> <a href="/api/groups/${group.code}/film" download="${group.title}.mp4">Download alles als één MP4</a> — met dezelfde overvloeiing als hierboven. Dat is een echte encode, dus even geduld bij veel clips.`
+    : '<strong>Geen ffmpeg op de laptop.</strong> Afspelen werkt, maar clips worden niet op maat geknipt en één MP4 maken lukt niet. Installeer ffmpeg en start de server opnieuw.';
 
   el('reel').replaceChildren(...clips.map((clip, index) => {
     const mine = clip.author === store.name;
@@ -527,14 +525,26 @@ async function recordLive() {
   setTimeout(() => { if (recorder?.state === 'recording') recorder.stop(); }, durationMs);
 }
 
+let warnedAboutFallback = false;
+
 el('recBtn').onclick = async () => {
   if (!group) return;
-  // getUserMedia needs a secure context. Over plain http on a LAN address that
-  // is not granted, so the phone's own camera app takes over instead.
+
+  // Recording inside the page needs a secure context, which is why the server
+  // serves https. Without it the phone's own camera app takes over — that one
+  // keeps rolling until you stop it, so the length is enforced afterwards by
+  // the trim on upload instead of by the recorder.
   if (useGetUserMedia === false || !window.isSecureContext) {
     useGetUserMedia = false;
+    if (!warnedAboutFallback) {
+      warnedAboutFallback = true;
+      toast(group.exactLengths
+        ? `Je eigen camera opent — hij wordt daarna op ${group.clipSeconds}s geknipt`
+        : 'Je eigen camera opent — stop zelf na een paar seconden');
+    }
     return el('fileCapture').click();
   }
+
   try {
     await recordLive();
     useGetUserMedia = true;
@@ -561,66 +571,120 @@ el('shareBtn').onclick = async () => {
   catch { prompt('Kopieer deze link:', url); }
 };
 
-// --- playback: two videos leapfrogging, same trick as the app ---------------
-const player = { items: [], index: 0, slot: 0, timer: null, videos: [el('videoA'), el('videoB')] };
-const clearTimer = () => { if (player.timer) { clearTimeout(player.timer); player.timer = null; } };
+// --- playback ---------------------------------------------------------------
+//
+// Two players overlap rather than take turns. The next clip starts playing
+// underneath while the current one is still on screen, and for the length of
+// the dissolve both picture and sound are mixed frame by frame. A hard swap is
+// what made it feel like a slideshow; this is what makes it feel like a film.
+const player = {
+  items: [], index: 0, slot: 0, raf: null, timer: null, running: false,
+  videos: [el('videoA'), el('videoB')],
+};
+
+const clearTimers = () => {
+  if (player.timer) { clearTimeout(player.timer); player.timer = null; }
+  if (player.raf) { cancelAnimationFrame(player.raf); player.raf = null; }
+};
+
+const fadeMs = () =>
+  Math.min(group?.crossfadeMs ?? FALLBACK_CROSSFADE_MS,
+           Math.floor((player.items[player.index]?.durationMs ?? 3000) * 0.25));
 
 function paint() {
   [...el('progress').children].forEach((bar, i) => bar.classList.toggle('done', i <= player.index));
 }
 
-function preload(slot, index) {
+function prime(slot, index) {
   const item = player.items[index];
-  if (!item) return;
+  if (!item) return null;
   const video = player.videos[slot];
-  video.src = mediaUrl(item);
-  video.load();
+  const url = mediaUrl(item);
+  if (!video.src.endsWith(url)) { video.src = url; video.load(); }
+  return video;
 }
 
-function showItem() {
-  clearTimer();
+function playFrom(video) {
+  video.currentTime = 0;
+  video.muted = false;
+  video.volume = 1;
+  video.play().catch(() => {
+    // Autoplay with sound can be refused; muted playback beats a frozen frame.
+    video.muted = true;
+    void video.play();
+  });
+}
+
+function dissolve(fromVideo, toVideo, duration, done) {
+  const started = performance.now();
+  const step = (now) => {
+    const t = Math.min((now - started) / duration, 1);
+    if (fromVideo) {
+      fromVideo.style.opacity = String(1 - t);
+      if (!fromVideo.muted) fromVideo.volume = Math.max(0, 1 - t);
+    }
+    toVideo.style.opacity = String(t);
+    if (!toVideo.muted) toVideo.volume = Math.min(1, t);
+    if (t < 1) player.raf = requestAnimationFrame(step);
+    else {
+      player.raf = null;
+      if (fromVideo) { fromVideo.pause(); fromVideo.style.opacity = '0'; }
+      done?.();
+    }
+  };
+  player.raf = requestAnimationFrame(step);
+}
+
+function showItem(previousVideo) {
+  clearTimers();
   paint();
+
   const item = player.items[player.index];
   if (!item) return closePlayer();
 
-  const video = player.videos[player.slot];
-  player.videos.forEach((v) => v.classList.remove('live'));
-  const url = mediaUrl(item);
-  if (!video.src.endsWith(url)) { video.src = url; video.load(); }
-  video.currentTime = 0;
-  video.classList.add('live');
-  video.muted = false;
-  video.play().catch(() => { video.muted = true; video.play().catch(() => advance()); });
+  const video = prime(player.slot, player.index);
+  if (!video) return closePlayer();
+  playFrom(video);
 
-  player.timer = setTimeout(advance, item.durationMs + 400);
-  preload(player.slot === 0 ? 1 : 0, player.index + 1);
+  const fade = previousVideo ? fadeMs() : 0;
+  if (fade > 0) dissolve(previousVideo, video, fade);
+  else { video.style.opacity = '1'; if (previousVideo) previousVideo.style.opacity = '0'; }
+
+  // Warm the other slot so the next dissolve has real frames to blend.
+  prime(player.slot === 0 ? 1 : 0, player.index + 1);
+
+  // Begin the next clip early enough that the overlap covers the seam.
+  const lead = player.index + 1 < player.items.length ? fadeMs() : 0;
+  player.timer = setTimeout(advance, Math.max(200, item.durationMs - lead));
 }
 
 function advance() {
-  clearTimer();
+  clearTimers();
+  if (!player.running) return;
   if (player.index + 1 >= player.items.length) return closePlayer();
+
+  const outgoing = player.videos[player.slot];
   player.index += 1;
   player.slot = player.slot === 0 ? 1 : 0;
-  showItem();
+  showItem(outgoing);
 }
-
-player.videos.forEach((v) => v.addEventListener('ended', () => {
-  if (v.classList.contains('live')) advance();
-}));
 
 el('playBtn').onclick = () => {
   if (!group?.clips.length) return;
   player.items = group.clips;
   player.index = 0;
   player.slot = 0;
+  player.running = true;
+  player.videos.forEach((v) => { v.style.opacity = '0'; v.pause(); });
   el('progress').replaceChildren(...group.clips.map(() => document.createElement('i')));
   el('player').classList.add('open');
-  showItem();
+  showItem(null);
 };
 
 function closePlayer() {
-  clearTimer();
-  player.videos.forEach((v) => { v.pause(); v.classList.remove('live'); });
+  player.running = false;
+  clearTimers();
+  player.videos.forEach((v) => { v.pause(); v.style.opacity = '0'; });
   el('player').classList.remove('open');
 }
 el('playerClose').onclick = closePlayer;

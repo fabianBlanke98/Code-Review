@@ -17,7 +17,8 @@
 
 import { createReadStream, createWriteStream } from 'node:fs';
 import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
-import { createServer } from 'node:http';
+import { createServer as createHttpServer } from 'node:http';
+import { createServer as createHttpsServer } from 'node:https';
 import { networkInterfaces } from 'node:os';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -33,6 +34,14 @@ const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 const MAX_UPLOAD_BYTES = 60 * 1024 * 1024;
 const CLIP_SECONDS_OPTIONS = [1, 2, 3, 4, 5];
+
+/** How long one clip dissolves into the next, in both playback and export. */
+const CROSSFADE_MS = 400;
+
+/** Beyond this the xfade filter graph stops being worth it; hard-cut instead. */
+const CROSSFADE_CLIP_LIMIT = 120;
+
+export const crossfadeFor = (clipMs) => Math.min(CROSSFADE_MS, Math.floor(clipMs * 0.25));
 
 // ---------------------------------------------------------------------------
 // Store: one JSON index plus the raw uploads. Small enough to rewrite whole.
@@ -140,11 +149,15 @@ async function hasAudioStream(file) {
 }
 
 /**
- * Normalize every clip into one profile, then concatenate with a stream copy.
+ * Normalize a clip into one profile and cut it to exactly `seconds`.
  *
- * The same two-step the cloud worker uses, at 720x1280 so a laptop keeps up.
- * Phones hand back wildly different containers; concat refuses to join streams
- * whose parameters differ, so the normalize pass is not optional.
+ * Doing this at upload rather than at export is what makes "you picked 3
+ * seconds, so every clip is 3 seconds" true no matter how it was filmed. The
+ * in-page recorder already stops itself; the phone's own camera app does not,
+ * and this is what makes that difference invisible in the finished film.
+ *
+ * 720x1280 so a laptop keeps up. Phones hand back wildly different containers,
+ * and both concat and xfade refuse to work across mismatched streams.
  */
 async function normalizeOne(input, output, seconds) {
   const vf = 'scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,fps=30,setsar=1';
@@ -174,6 +187,89 @@ async function normalizeOne(input, output, seconds) {
     '-i', input, '-map', '1:v:0', '-map', '0:a:0', '-shortest', ...tail]);
 }
 
+/** Best-effort: without ffmpeg the raw upload is kept exactly as it arrived. */
+async function normalizeInPlace(file, seconds) {
+  if (!hasFfmpeg) return false;
+  const staged = `${file}.norm.mp4`;
+  try {
+    await normalizeOne(file, staged, seconds);
+    await rm(file, { force: true });
+    await run('mv', [staged, file]).catch(async () => {
+      // `mv` is not guaranteed everywhere; fall back to a copy through node.
+      await writeFile(file, await readFile(staged));
+      await rm(staged, { force: true });
+    });
+    return true;
+  } catch (error) {
+    console.warn('normalize failed, keeping the original:', String(error.message ?? error).slice(0, 200));
+    await rm(staged, { force: true });
+    return false;
+  }
+}
+
+/**
+ * Dissolve each clip into the next instead of cutting.
+ *
+ * This is a re-encode — xfade has to blend real frames, so the concat
+ * stream-copy shortcut does not apply. On a laptop, for a holiday's worth of
+ * clips, that is a wait of seconds, and the result is what people actually
+ * want to watch. Above CROSSFADE_CLIP_LIMIT the graph stops paying for itself
+ * and we fall back to hard cuts.
+ */
+/**
+ * Where each dissolve starts, in the accumulated stream's own timeline.
+ *
+ * `xfade=offset=T` is measured against the running result, not the clip being
+ * joined, and every dissolve overlaps two clips — so the film gets shorter as
+ * it grows and the offsets are not simply cumulative durations. Exported and
+ * unit-tested because getting this wrong yields a film that drifts further out
+ * of step with every clip.
+ */
+export function xfadeOffsets(durations, fade) {
+  const offsets = [];
+  let length = durations[0];
+  for (let i = 1; i < durations.length; i++) {
+    offsets.push(Number((length - fade).toFixed(3)));
+    length += durations[i] - fade;
+  }
+  return offsets;
+}
+
+export const crossfadedDuration = (durations, fade) =>
+  durations.reduce((sum, d) => sum + d, 0) - fade * Math.max(0, durations.length - 1);
+
+async function renderCrossfaded(segments, durations, fadeSeconds, output) {
+  const inputs = segments.flatMap((file) => ['-i', file]);
+  const offsets = xfadeOffsets(durations, fadeSeconds);
+  const filters = [];
+
+  let video = '0:v';
+  let audio = '0:a';
+
+  for (let i = 1; i < segments.length; i++) {
+    const nextVideo = `v${i}`;
+    const nextAudio = `a${i}`;
+    filters.push(
+      `[${video}][${i}:v]xfade=transition=fade:duration=${fadeSeconds}:offset=${offsets[i - 1]}[${nextVideo}]`,
+      `[${audio}][${i}:a]acrossfade=d=${fadeSeconds}[${nextAudio}]`,
+    );
+    video = nextVideo;
+    audio = nextAudio;
+  }
+
+  await run('ffmpeg', [
+    '-y', '-hide_banner', '-loglevel', 'error',
+    ...inputs,
+    '-filter_complex', filters.join(';'),
+    '-map', `[${video}]`, '-map', `[${audio}]`,
+    '-c:v', 'libx264', '-profile:v', 'high', '-pix_fmt', 'yuv420p',
+    '-preset', 'veryfast', '-crf', '23',
+    '-c:a', 'aac', '-ar', '48000', '-ac', '2', '-b:a', '128k',
+    '-movflags', '+faststart',
+    output,
+  ]);
+}
+
 async function renderFilm(group) {
   const ordered = publicGroup(group).clips;
   if (ordered.length === 0) throw new Error('film is empty');
@@ -195,19 +291,20 @@ async function renderFilm(group) {
   await rm(work, { recursive: true, force: true });
   await mkdir(work, { recursive: true });
 
-  const segments = [];
-  for (const [index, clip] of ordered.entries()) {
-    const source = clipFile(group.code, clip.id, clip.revision);
-    const segment = path.join(work, `${String(index).padStart(4, '0')}.mp4`);
-    await normalizeOne(source, segment, group.clipSeconds);
-    segments.push(segment);
-  }
+  // Clips are normalized on the way in, so they can go straight into the graph.
+  const segments = ordered.map((clip) => clipFile(group.code, clip.id, clip.revision));
+  const durations = ordered.map((clip) => clip.durationMs / 1000);
+  const fadeSeconds = crossfadeFor(group.clipSeconds * 1000) / 1000;
 
-  const listPath = path.join(work, 'concat.txt');
-  await writeFile(listPath, segments.map((s) => `file '${s.replace(/'/g, "'\\''")}'`).join('\n'));
-  await run('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error',
-    '-f', 'concat', '-safe', '0', '-i', listPath, '-c', 'copy',
-    '-movflags', '+faststart', outPath]);
+  if (segments.length > 1 && segments.length <= CROSSFADE_CLIP_LIMIT && fadeSeconds > 0.05) {
+    await renderCrossfaded(segments, durations, fadeSeconds, outPath);
+  } else {
+    const listPath = path.join(work, 'concat.txt');
+    await writeFile(listPath, segments.map((s) => `file '${s.replace(/'/g, "'\\''")}'`).join('\n'));
+    await run('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error',
+      '-f', 'concat', '-safe', '0', '-i', listPath, '-c', 'copy',
+      '-movflags', '+faststart', outPath]);
+  }
 
   await rm(work, { recursive: true, force: true });
   group.renderSignature = signature;
@@ -321,7 +418,12 @@ async function handle(request, response) {
 
   // --- GET /api/groups/:code ----------------------------------------------
   if (request.method === 'GET' && parts.length === 3) {
-    return json(response, 200, { ...publicGroup(group), canExport: hasFfmpeg });
+    return json(response, 200, {
+      ...publicGroup(group),
+      canExport: hasFfmpeg,
+      exactLengths: hasFfmpeg,
+      crossfadeMs: crossfadeFor(group.clipSeconds * 1000),
+    });
   }
 
   // --- GET /api/groups/:code/events (SSE) ---------------------------------
@@ -380,10 +482,17 @@ async function handle(request, response) {
       addedAt: Date.now(),
     };
 
+    const target = clipFile(code, clip.id, clip.revision);
     try {
-      await saveUpload(request, clipFile(code, clip.id, clip.revision));
+      await saveUpload(request, target);
     } catch (error) {
       return json(response, 413, { error: String(error.message ?? error) });
+    }
+
+    // Cut to exactly the length the group chose, however it was filmed.
+    if (await normalizeInPlace(target, group.clipSeconds)) {
+      clip.durationMs = group.clipSeconds * 1000;
+      clip.contentType = 'video/mp4';
     }
 
     group.clips.push(clip);
@@ -404,10 +513,14 @@ async function handle(request, response) {
     if (author !== clip.author) return json(response, 403, { error: 'not_clip_author' });
 
     const nextRevision = clip.revision + 1;
+    const target = clipFile(code, clip.id, nextRevision);
     try {
-      await saveUpload(request, clipFile(code, clip.id, nextRevision));
+      await saveUpload(request, target);
     } catch (error) {
       return json(response, 413, { error: String(error.message ?? error) });
+    }
+    if (await normalizeInPlace(target, group.clipSeconds)) {
+      clip.durationMs = group.clipSeconds * 1000;
     }
 
     // Only drop the take it replaced once the new one is safely on disk.
@@ -442,6 +555,49 @@ async function handle(request, response) {
 
 // ---------------------------------------------------------------------------
 
+/**
+ * A phone will only let a page use its camera over https.
+ *
+ * Without it the recorder falls back to the phone's own camera app, which does
+ * not stop by itself — so the group's chosen clip length only gets enforced
+ * afterwards, by the trim on upload. With a certificate the in-page recorder
+ * runs, and the recording stops on its own at exactly the right moment.
+ *
+ * The certificate is self-signed, so each phone shows one scary warning the
+ * first time. That is the price of not owning a domain, and it is a one-tap
+ * price. Everything still works over plain http if openssl is not around.
+ */
+async function ensureCertificate(addresses) {
+  const keyPath = path.join(DATA, 'dev-key.pem');
+  const certPath = path.join(DATA, 'dev-cert.pem');
+  const stampPath = path.join(DATA, 'dev-cert.addresses');
+  const wanted = addresses.join(',');
+
+  try {
+    const stamp = await readFile(stampPath, 'utf8');
+    if (stamp === wanted) {
+      return { key: await readFile(keyPath), cert: await readFile(certPath) };
+    }
+  } catch {
+    // no usable certificate yet
+  }
+
+  const sans = ['DNS:localhost', 'IP:127.0.0.1', ...addresses.map((a) => `IP:${a}`)].join(',');
+  try {
+    await run('openssl', [
+      'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '365',
+      '-subj', '/CN=mosaic.local',
+      '-addext', `subjectAltName=${sans}`,
+      '-keyout', keyPath, '-out', certPath,
+    ]);
+  } catch {
+    return null; // openssl missing: http it is
+  }
+
+  await writeFile(stampPath, wanted);
+  return { key: await readFile(keyPath), cert: await readFile(certPath) };
+}
+
 function lanAddresses() {
   return Object.values(networkInterfaces())
     .flat()
@@ -452,26 +608,45 @@ function lanAddresses() {
 await loadGroups();
 await detectFfmpeg();
 
-createServer((request, response) => {
+const addresses = lanAddresses();
+const tls = process.env.MOSAIC_HTTP ? null : await ensureCertificate(addresses);
+
+const listener = (request, response) => {
   handle(request, response).catch((error) => {
     console.error(request.method, request.url, error);
     if (!response.headersSent) json(response, 500, { error: 'server_error' });
   });
-}).listen(PORT, '0.0.0.0', () => {
-  const addresses = lanAddresses();
+};
+
+const server = tls ? createHttpsServer(tls, listener) : createHttpServer(listener);
+const scheme = tls ? 'https' : 'http';
+
+server.listen(PORT, '0.0.0.0', () => {
   console.log('');
   console.log('  Mosaic draait op je eigen wifi.');
   console.log('');
   if (addresses.length === 0) {
-    console.log(`  Geen netwerkadres gevonden — alleen http://localhost:${PORT}`);
+    console.log(`  Geen netwerkadres gevonden — alleen ${scheme}://localhost:${PORT}`);
   } else {
-    for (const address of addresses) console.log(`  Open op je telefoon:  http://${address}:${PORT}`);
+    for (const address of addresses) {
+      console.log(`  Open op je telefoon:  ${scheme}://${address}:${PORT}`);
+    }
+  }
+  console.log('');
+
+  if (tls) {
+    console.log('  De eerste keer waarschuwt je telefoon over het certificaat.');
+    console.log('  Doorgaan is veilig: het is je eigen laptop, op je eigen wifi.');
+    console.log('  Daarna mag de pagina de camera gebruiken en stopt de opname vanzelf.');
+  } else {
+    console.log('  Geen openssl gevonden, dus geen https. Opnemen gaat dan via je');
+    console.log('  eigen camera-app; de opname wordt na afloop op maat geknipt.');
   }
   console.log('');
   console.log(`  Opnames komen in:     ${DATA}`);
   console.log(hasFfmpeg
-    ? '  ffmpeg gevonden — de film is als één MP4 te downloaden.'
-    : '  Geen ffmpeg — afspelen werkt, één MP4 downloaden niet.');
+    ? '  ffmpeg gevonden — clips worden op maat geknipt en de film loopt over.'
+    : '  Geen ffmpeg — clips blijven zoals ze binnenkomen en overlopen kan niet.');
   console.log('');
   console.log('  Stoppen: Ctrl-C. Alles blijft lokaal; er gaat niets naar internet.');
   console.log('');

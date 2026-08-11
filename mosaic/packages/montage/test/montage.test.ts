@@ -61,19 +61,34 @@ describe('buildMontage', () => {
     assert.deepEqual(ids(buildMontage([b, a])), ['aaa', 'bbb']);
   });
 
-  it('adds up the runtime', () => {
+  it('reports the runtime after the dissolves overlap', () => {
+    // 3 x 3000ms with a 400ms dissolve between each pair: 9000 - 2 x 400.
+    const montage = buildMontage([clip(1), clip(2), clip(3)]);
+    assert.equal(montage.crossfadeMs, 400);
+    assert.equal(montage.totalDurationMs, 8200);
+  });
+
+  it('shortens the dissolve so it never swallows a short clip', () => {
+    // A 400ms fade on a 1s take would leave almost nothing to look at.
     const montage = buildMontage([
       clip(1, { durationMs: 1000 }),
-      clip(2, { durationMs: 5000 }),
-      clip(3, { durationMs: 2500 }),
+      clip(2, { durationMs: 1000 }),
     ]);
-    assert.equal(montage.totalDurationMs, 8500);
+    assert.equal(montage.crossfadeMs, 250);
+    assert.equal(montage.totalDurationMs, 1750);
+  });
+
+  it('has nothing to dissolve into with a single clip', () => {
+    const montage = buildMontage([clip(1, { durationMs: 3000 })]);
+    assert.equal(montage.crossfadeMs, 0);
+    assert.equal(montage.totalDurationMs, 3000);
   });
 
   it('handles an empty film', () => {
     const montage = buildMontage([]);
     assert.deepEqual(montage.items, []);
     assert.equal(montage.totalDurationMs, 0);
+    assert.equal(montage.crossfadeMs, 0);
     assert.match(montage.specHash, /^[0-9a-f]{64}$/);
   });
 });

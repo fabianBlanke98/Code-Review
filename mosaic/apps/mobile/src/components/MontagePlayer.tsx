@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 
 import type { MontageItem } from '@mosaic/montage';
@@ -8,18 +8,23 @@ interface Props {
   items: MontageItem[];
   /** Signed playback URL per clip id. */
   urls: Record<string, string>;
+  /** How long one clip dissolves into the next. 0 cuts hard. */
+  crossfadeMs: number;
   onFinished?: () => void;
 }
 
 /**
  * Plays the film without rendering one.
  *
- * Two players leapfrog: while A is on screen, B is already buffering the next
- * clip, so the cut lands without a stall. Server-side rendering is reserved for
- * export — preview must be instant and must not cost an encode every time
- * somebody watches the film back.
+ * Two players overlap rather than take turns: the next clip starts underneath
+ * while the current one is still on screen, and for the length of the dissolve
+ * both are visible and audible at once. Swapping them outright is what made
+ * this feel like a slideshow.
+ *
+ * Server-side rendering stays reserved for export — a preview must not cost an
+ * encode every time somebody watches the film back.
  */
-export function MontagePlayer({ items, urls, onFinished }: Props) {
+export function MontagePlayer({ items, urls, crossfadeMs, onFinished }: Props) {
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const [activeSlot, setActiveSlot] = useState<0 | 1>(0);
@@ -28,16 +33,29 @@ export function MontagePlayer({ items, urls, onFinished }: Props) {
   const playerB = useVideoPlayer(null, (p) => { p.loop = false; });
   const players = useMemo(() => [playerA, playerB] as const, [playerA, playerB]);
 
+  // One driver per slot; they always sum to 1 so the screen is never dark.
+  const fadeA = useRef(new Animated.Value(1)).current;
+  const fadeB = useRef(new Animated.Value(0)).current;
+  const fades = useMemo(() => [fadeA, fadeB] as const, [fadeA, fadeB]);
+
+  const advanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const advanceLock = useRef(-1);
 
   const current = items[index];
   const next = items[index + 1];
 
-  // Guarded so a late `playToEnd` cannot skip an extra clip.
+  const clearAdvance = () => {
+    if (advanceTimer.current) {
+      clearTimeout(advanceTimer.current);
+      advanceTimer.current = null;
+    }
+  };
+
   const advance = useCallback(
     (from: number) => {
       if (advanceLock.current === from) return;
       advanceLock.current = from;
+      clearAdvance();
 
       if (from + 1 >= items.length) {
         onFinished?.();
@@ -49,6 +67,7 @@ export function MontagePlayer({ items, urls, onFinished }: Props) {
     [items.length, onFinished],
   );
 
+  // Drive the slot that just became active.
   useEffect(() => {
     if (!current) return;
 
@@ -64,11 +83,30 @@ export function MontagePlayer({ items, urls, onFinished }: Props) {
     player.currentTime = 0;
     if (!paused) player.play();
 
-    const subscription = player.addListener('playToEnd', () => advance(index));
-    return () => subscription.remove();
-  }, [index, current, activeSlot, paused, players, urls, advance]);
+    const incoming = fades[activeSlot];
+    const outgoing = fades[activeSlot === 0 ? 1 : 0];
+    const duration = index === 0 ? 0 : crossfadeMs;
 
-  // Warm the idle slot with whatever comes next.
+    Animated.parallel([
+      Animated.timing(incoming, { toValue: 1, duration, useNativeDriver: true }),
+      Animated.timing(outgoing, { toValue: 0, duration, useNativeDriver: true }),
+    ]).start(({ finished }) => {
+      if (finished) players[activeSlot === 0 ? 1 : 0].pause();
+    });
+
+    if (!paused) {
+      // Start the next clip a dissolve early so the overlap covers the seam.
+      const lead = index + 1 < items.length ? crossfadeMs : 0;
+      advanceTimer.current = setTimeout(
+        () => advance(index),
+        Math.max(200, current.durationMs - lead),
+      );
+    }
+
+    return clearAdvance;
+  }, [index, current, activeSlot, paused, players, fades, urls, crossfadeMs, items.length, advance]);
+
+  // Warm the idle slot so the next dissolve has real frames to blend.
   useEffect(() => {
     if (!next) return;
     const url = urls[next.clip.id];
@@ -80,12 +118,18 @@ export function MontagePlayer({ items, urls, onFinished }: Props) {
     idle.currentTime = 0;
   }, [next, activeSlot, players, urls]);
 
+  useEffect(() => clearAdvance, []);
+
   const togglePause = () => {
     setPaused((wasPaused) => {
       const nowPaused = !wasPaused;
       const player = players[activeSlot];
-      if (nowPaused) player.pause();
-      else player.play();
+      if (nowPaused) {
+        clearAdvance();
+        player.pause();
+      } else {
+        player.play();
+      }
       return nowPaused;
     });
   };
@@ -100,15 +144,15 @@ export function MontagePlayer({ items, urls, onFinished }: Props) {
 
   return (
     <Pressable style={styles.container} onPress={togglePause} accessibilityRole="button">
-      {/* Both views stay mounted; only opacity swaps, so there is no remount flash. */}
       {players.map((player, slot) => (
-        <VideoView
-          key={slot}
-          player={player}
-          style={[styles.video, { opacity: activeSlot === slot ? 1 : 0 }]}
-          contentFit="cover"
-          nativeControls={false}
-        />
+        <Animated.View key={slot} style={[styles.video, { opacity: fades[slot] }]}>
+          <VideoView
+            player={player}
+            style={StyleSheet.absoluteFill}
+            contentFit="cover"
+            nativeControls={false}
+          />
+        </Animated.View>
       ))}
 
       <View style={styles.progressRow} pointerEvents="none">
