@@ -31,6 +31,9 @@ export default function CameraScreen() {
 
   const [recording, setRecording] = useState(false);
   const [uploading, setUploading] = useState(false);
+  // Hand the camera back the moment this screen goes away. Leaving it active
+  // keeps the indicator on, which reads as "it never stopped recording".
+  const [active, setActive] = useState(true);
   const [remaining, setRemaining] = useState(clipSeconds);
   const stopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tick = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -48,7 +51,10 @@ export default function CameraScreen() {
     if (tick.current) { clearInterval(tick.current); tick.current = null; }
   };
 
-  useEffect(() => clearTimers, []);
+  useEffect(() => () => {
+    clearTimers();
+    setActive(false);
+  }, []);
 
   /**
    * One tap records exactly the group's clip length and stops itself. Nothing
@@ -129,7 +135,7 @@ export default function CameraScreen() {
         ref={camera}
         style={StyleSheet.absoluteFill}
         device={device}
-        isActive={!uploading}
+        isActive={active && !uploading}
         video
         audio={hasMic}
         orientation="portrait"

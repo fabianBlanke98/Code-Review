@@ -134,6 +134,45 @@
     transform:rotate(-90deg); transform-origin:50% 50%;
   }
 
+  /* Viewfinder. Without it you film blind and have no way to see the
+     recording start or stop, which reads as "the camera never stopped". */
+  .capture { position:fixed; inset:0; background:#000; display:none; z-index:45; }
+  .capture.open { display:block; }
+  .capture video {
+    position:absolute; inset:0; width:100%; height:100%; object-fit:cover;
+    transform:scaleX(1);
+  }
+  .capture-hud {
+    position:absolute; left:0; right:0; bottom:calc(48px + env(safe-area-inset-bottom));
+    display:flex; flex-direction:column; align-items:center; gap:16px; z-index:2;
+  }
+  .capture-count {
+    font-family:var(--mono); font-size:64px; font-weight:700; line-height:1;
+    font-variant-numeric:tabular-nums; color:#fff;
+    text-shadow:0 2px 24px rgba(0,0,0,.6);
+  }
+  .capture-hint {
+    color:rgba(255,255,255,.9); font-size:14px;
+    text-shadow:0 1px 8px rgba(0,0,0,.7);
+  }
+  .capture-ring { position:absolute; inset:0; }
+  .capture-ring circle {
+    fill:none; stroke:#fff; stroke-width:4;
+    transform:rotate(-90deg); transform-origin:50% 50%;
+  }
+  .capture-dot {
+    position:relative; width:78px; height:78px; border-radius:50%;
+    background:#e74c3c; display:grid; place-items:center;
+  }
+  .capture-cancel {
+    position:absolute; top:calc(20px + env(safe-area-inset-top)); left:16px; z-index:3;
+    font:inherit; font-size:14px; font-weight:600; color:#fff;
+    background:rgba(0,0,0,.45); border:none; border-radius:999px; padding:10px 16px;
+  }
+  .rec-mode {
+    font-size:12px; color:var(--ink-faint); text-align:center; margin-top:10px;
+  }
+
   .player { position:fixed; inset:0; background:#000; display:none; z-index:40; }
   .player.open { display:block; }
   .player video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:0; }
@@ -229,6 +268,7 @@
       </div>
     </section>
 
+    <div class="rec-mode" id="recMode"></div>
     <div class="note" id="exportNote"></div>
   </div>
 </div>
@@ -242,6 +282,20 @@
     <span id="recLabel">3s</span>
   </button>
   <button class="btn" id="leaveBtn">Groepen</button>
+</div>
+
+<div class="capture" id="capture">
+  <video id="preview" autoplay muted playsinline></video>
+  <button class="capture-cancel" id="captureCancel">Annuleer</button>
+  <div class="capture-hud">
+    <div class="capture-count" id="captureCount">3</div>
+    <div class="capture-dot">
+      <svg class="capture-ring" viewBox="0 0 100 100" aria-hidden="true">
+        <circle id="captureArc" cx="50" cy="50" r="46" stroke-dasharray="289" stroke-dashoffset="0"></circle>
+      </svg>
+    </div>
+    <div class="capture-hint">Stopt vanzelf</div>
+  </div>
 </div>
 
 <input type="file" accept="video/*" capture="environment" id="fileCapture" hidden>
@@ -337,6 +391,7 @@ el('nameSave').onclick = () => {
 el('nameInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') el('nameSave').click(); });
 
 el('leaveBtn').onclick = () => { location.hash = ''; };
+window.addEventListener('pagehide', () => releaseCamera());
 
 // --- the film ---------------------------------------------------------------
 const mediaUrl = (clip) =>
@@ -359,6 +414,8 @@ function renderFilm() {
 
   el('empty').classList.toggle('hidden', clips.length > 0);
   el('playBtn').disabled = clips.length === 0;
+
+  renderMode();
 
   el('exportNote').innerHTML = group.canExport
     ? `<strong>De aftermovie.</strong> <a href="/api/groups/${group.code}/film" download="${group.title}.mp4">Download alles als één MP4</a> — met dezelfde overvloeiing als hierboven. Dat is een echte encode, dus even geduld bij veel clips.`
@@ -489,41 +546,92 @@ async function sendClip(blob) {
   }
 }
 
+/**
+ * Hand the camera back.
+ *
+ * Keeping the stream alive between takes saved a second of start-up and cost
+ * the camera staying on — indicator light included — long after the clip was
+ * finished. From the outside that is indistinguishable from "it never stopped
+ * recording", and it is the wrong default for something pointed at people.
+ */
+function releaseCamera() {
+  el('preview').srcObject = null;
+  if (liveStream) {
+    liveStream.getTracks().forEach((track) => track.stop());
+    liveStream = null;
+  }
+}
+
+function closeCapture() {
+  el('capture').classList.remove('open');
+  releaseCamera();
+  el('recBtn').disabled = false;
+  el('recLabel').textContent = group ? `${group.clipSeconds}s` : '';
+}
+
+const ARC_CAPTURE = 289;
+
 async function recordLive() {
   const durationMs = group.clipSeconds * 1000;
-  if (!liveStream) {
-    liveStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment', width: { ideal: 720 }, height: { ideal: 1280 } },
-      audio: true,
-    });
-  }
+
+  liveStream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: 'environment', width: { ideal: 720 }, height: { ideal: 1280 } },
+    audio: true,
+  });
+
+  // Show what is being filmed. Recording blind is why nobody could tell the
+  // recorder had stopped itself.
+  const preview = el('preview');
+  preview.srcObject = liveStream;
+  await preview.play().catch(() => {});
+  el('capture').classList.add('open');
 
   const chunks = [];
   recorder = new MediaRecorder(liveStream);
   recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
   recorder.onstop = async () => {
-    el('recBtn').disabled = false;
-    el('recLabel').textContent = `${group.clipSeconds}s`;
-    await sendClip(new Blob(chunks, { type: recorder.mimeType || 'video/webm' }));
+    const blob = new Blob(chunks, { type: recorder.mimeType || 'video/webm' });
+    recorder = null;
+    closeCapture();
+    if (blob.size > 0) await sendClip(blob);
   };
 
   recorder.start();
   el('recBtn').disabled = true;
-  runArc(durationMs);
 
-  const end = Date.now() + durationMs;
-  const tick = () => {
-    const left = Math.ceil((end - Date.now()) / 1000);
-    if (left > 0 && recorder?.state === 'recording') {
-      el('recLabel').textContent = String(left);
-      setTimeout(tick, 200);
-    }
+  const arc = el('captureArc');
+  const count = el('captureCount');
+  const started = performance.now();
+
+  const frame = (now) => {
+    const progress = Math.min((now - started) / durationMs, 1);
+    arc.style.strokeDashoffset = String(ARC_CAPTURE * progress);
+    count.textContent = String(Math.max(0, Math.ceil((durationMs - (now - started)) / 1000)));
+    if (progress < 1 && recorder?.state === 'recording') requestAnimationFrame(frame);
   };
-  tick();
+  requestAnimationFrame(frame);
 
-  // One tap, a fixed length, nothing to hold and nothing to trim.
+  // One tap, a fixed length, nothing to hold and nothing to trim. The second
+  // timer is a failsafe: if stop() is ignored, killing the tracks ends the
+  // recording anyway rather than leaving the camera running.
   setTimeout(() => { if (recorder?.state === 'recording') recorder.stop(); }, durationMs);
+  setTimeout(() => {
+    if (recorder?.state === 'recording') {
+      console.warn('recorder ignored stop(); releasing the camera');
+      releaseCamera();
+    }
+  }, durationMs + 1500);
 }
+
+el('captureCancel').onclick = () => {
+  if (recorder?.state === 'recording') {
+    recorder.ondataavailable = null;
+    recorder.onstop = null;
+    try { recorder.stop(); } catch { /* already stopping */ }
+    recorder = null;
+  }
+  closeCapture();
+};
 
 let warnedAboutFallback = false;
 
@@ -548,12 +656,31 @@ el('recBtn').onclick = async () => {
   try {
     await recordLive();
     useGetUserMedia = true;
+    renderMode();
   } catch {
     useGetUserMedia = false;
+    releaseCamera();
+    el('capture').classList.remove('open');
     el('recBtn').disabled = false;
+    renderMode();
     el('fileCapture').click();
   }
 };
+
+/** Say plainly which recorder is in play; the difference is the auto-stop. */
+function renderMode() {
+  if (!group) return;
+  const node = el('recMode');
+  if (useGetUserMedia === true) {
+    node.textContent = `Opnemen gebeurt in deze pagina en stopt vanzelf na ${group.clipSeconds}s.`;
+  } else if (useGetUserMedia === false) {
+    node.textContent = group.exactLengths
+      ? `Je eigen camera-app neemt op — die stopt niet vanzelf, maar de clip wordt op ${group.clipSeconds}s geknipt.`
+      : 'Je eigen camera-app neemt op en stopt niet vanzelf.';
+  } else {
+    node.textContent = '';
+  }
+}
 
 el('fileCapture').addEventListener('change', async (event) => {
   const file = event.target.files?.[0];
