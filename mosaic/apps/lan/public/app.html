@@ -134,41 +134,123 @@
     transform:rotate(-90deg); transform-origin:50% 50%;
   }
 
-  /* Viewfinder. Without it you film blind and have no way to see the
-     recording start or stop, which reads as "the camera never stopped". */
+  /* --- the camera ---------------------------------------------------------
+     Full-bleed viewfinder, one shutter, a ring that drains as the take runs.
+     Nothing to hold and nothing to stop: the length was chosen once, by the
+     group, and the only job left on this screen is to point and tap. */
   .capture { position:fixed; inset:0; background:#000; display:none; z-index:45; }
   .capture.open { display:block; }
   .capture video {
     position:absolute; inset:0; width:100%; height:100%; object-fit:cover;
-    transform:scaleX(1);
   }
+  .capture video.mirrored { transform:scaleX(-1); }
+
+  /* Rule-of-thirds guides: faint, and gone the moment recording starts. */
+  .guides {
+    position:absolute; inset:0; z-index:1; pointer-events:none;
+    opacity:.22; transition:opacity .25s ease;
+    background:
+      linear-gradient(to right, transparent 33.2%, #fff 33.2%, #fff 33.5%, transparent 33.5%,
+                      transparent 66.4%, #fff 66.4%, #fff 66.7%, transparent 66.7%),
+      linear-gradient(to bottom, transparent 33.2%, #fff 33.2%, #fff 33.5%, transparent 33.5%,
+                      transparent 66.4%, #fff 66.4%, #fff 66.7%, transparent 66.7%);
+  }
+  .capture.rolling .guides { opacity:0; }
+
+  /* A red hairline around the frame while the take runs — the one unmistakable
+     "this is recording" signal, and it disappears the instant it stops. */
+  .rolling-edge {
+    position:absolute; inset:0; z-index:2; pointer-events:none;
+    box-shadow:inset 0 0 0 3px rgba(232,76,60,0); transition:box-shadow .2s ease;
+  }
+  .capture.rolling .rolling-edge { box-shadow:inset 0 0 0 3px rgba(232,76,60,.95); }
+
+  .capture-top {
+    position:absolute; top:calc(14px + env(safe-area-inset-top)); left:14px; right:14px;
+    z-index:4; display:flex; align-items:center; justify-content:space-between; gap:12px;
+  }
+  .glass {
+    font:inherit; font-size:14px; font-weight:600; color:#fff; border:none;
+    background:rgba(0,0,0,.42); border-radius:999px; padding:10px 16px;
+    backdrop-filter:blur(8px); cursor:pointer;
+  }
+  .glass:focus-visible { outline:2px solid #fff; outline-offset:2px; }
+  .glass.icon { width:44px; height:44px; padding:0; display:grid; place-items:center; font-size:18px; }
+
+  .take-badge {
+    font-family:var(--mono); font-size:13px; letter-spacing:.1em; font-weight:700;
+    color:#fff; background:rgba(0,0,0,.42); backdrop-filter:blur(8px);
+    border-radius:999px; padding:10px 14px; display:flex; align-items:center; gap:8px;
+  }
+  .take-badge b { width:8px; height:8px; border-radius:50%; background:#e84c3c; display:block; }
+  .capture.rolling .take-badge b { animation:blink 1s steps(2, start) infinite; }
+  @keyframes blink { 50% { opacity:.15; } }
+
   .capture-hud {
-    position:absolute; left:0; right:0; bottom:calc(48px + env(safe-area-inset-bottom));
-    display:flex; flex-direction:column; align-items:center; gap:16px; z-index:2;
-  }
-  .capture-count {
-    font-family:var(--mono); font-size:64px; font-weight:700; line-height:1;
-    font-variant-numeric:tabular-nums; color:#fff;
-    text-shadow:0 2px 24px rgba(0,0,0,.6);
+    position:absolute; left:0; right:0; bottom:calc(38px + env(safe-area-inset-bottom));
+    display:flex; flex-direction:column; align-items:center; gap:18px; z-index:4;
   }
   .capture-hint {
-    color:rgba(255,255,255,.9); font-size:14px;
-    text-shadow:0 1px 8px rgba(0,0,0,.7);
+    color:rgba(255,255,255,.92); font-size:15px; font-weight:500;
+    text-shadow:0 1px 10px rgba(0,0,0,.8); min-height:20px;
   }
-  .capture-ring { position:absolute; inset:0; }
-  .capture-ring circle {
-    fill:none; stroke:#fff; stroke-width:4;
+
+  .shutter {
+    position:relative; width:86px; height:86px; border:none; background:none;
+    cursor:pointer; display:grid; place-items:center; flex:none;
+  }
+  .shutter:disabled { cursor:default; }
+  .shutter-core {
+    width:66px; height:66px; border-radius:50%; background:#fff;
+    transition:width .22s cubic-bezier(.2,.8,.3,1), height .22s cubic-bezier(.2,.8,.3,1),
+               border-radius .22s cubic-bezier(.2,.8,.3,1), background .2s;
+  }
+  .capture.rolling .shutter-core {
+    width:30px; height:30px; border-radius:8px; background:#e84c3c;
+  }
+  .shutter-ring { position:absolute; inset:0; }
+  .shutter-ring .track { fill:none; stroke:rgba(255,255,255,.32); stroke-width:4; }
+  .shutter-ring .run {
+    fill:none; stroke:#fff; stroke-width:4; stroke-linecap:round;
     transform:rotate(-90deg); transform-origin:50% 50%;
   }
-  .capture-dot {
-    position:relative; width:78px; height:78px; border-radius:50%;
-    background:#e74c3c; display:grid; place-items:center;
+  .shutter-count {
+    position:absolute; font-family:var(--mono); font-size:22px; font-weight:700;
+    font-variant-numeric:tabular-nums; color:#14100A; pointer-events:none;
+    opacity:0; transition:opacity .15s;
   }
-  .capture-cancel {
-    position:absolute; top:calc(20px + env(safe-area-inset-top)); left:16px; z-index:3;
-    font:inherit; font-size:14px; font-weight:600; color:#fff;
-    background:rgba(0,0,0,.45); border:none; border-radius:999px; padding:10px 16px;
+  .capture.rolling .shutter-count { opacity:0; }
+
+  .big-count {
+    position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+    z-index:3; font-family:var(--mono); font-size:110px; font-weight:700; line-height:1;
+    font-variant-numeric:tabular-nums; color:#fff; text-shadow:0 4px 40px rgba(0,0,0,.55);
+    opacity:0; pointer-events:none; transition:opacity .2s;
   }
+  .capture.rolling .big-count { opacity:.92; }
+
+  /* One white frame on stop: the camera equivalent of a shutter click. */
+  .flash {
+    position:absolute; inset:0; z-index:6; background:#fff; opacity:0;
+    pointer-events:none;
+  }
+  .flash.fire { animation:flash .35s ease-out; }
+  @keyframes flash { 0% { opacity:.85; } 100% { opacity:0; } }
+
+  /* Shown instead of silently opening the phone's camera app. */
+  .denied {
+    position:absolute; inset:0; z-index:7; background:var(--ground); color:var(--ink);
+    display:none; flex-direction:column; justify-content:center; gap:14px;
+    padding:32px; text-align:left;
+  }
+  .denied.open { display:flex; }
+  .denied h2 { margin:0; }
+  .denied p { color:var(--ink-soft); margin:0; }
+  .denied code {
+    font-family:var(--mono); font-size:13px; background:var(--surface-alt);
+    padding:2px 6px; border-radius:5px;
+  }
+
   .rec-mode {
     font-size:12px; color:var(--ink-faint); text-align:center; margin-top:10px;
   }
@@ -275,10 +357,7 @@
 
 <div class="bar hidden" id="bar">
   <button class="btn" id="playBtn" disabled>Bekijk film</button>
-  <button class="rec" id="recBtn" aria-label="Opnemen">
-    <svg class="arc" viewBox="0 0 100 100" aria-hidden="true">
-      <circle id="arc" cx="50" cy="50" r="47" stroke-dasharray="295.3" stroke-dashoffset="295.3"></circle>
-    </svg>
+  <button class="rec" id="recBtn" aria-label="Camera openen">
     <span id="recLabel">3s</span>
   </button>
   <button class="btn" id="leaveBtn">Groepen</button>
@@ -286,15 +365,39 @@
 
 <div class="capture" id="capture">
   <video id="preview" autoplay muted playsinline></video>
-  <button class="capture-cancel" id="captureCancel">Annuleer</button>
+  <div class="guides"></div>
+  <div class="rolling-edge"></div>
+  <div class="big-count" id="bigCount"></div>
+  <div class="flash" id="flash"></div>
+
+  <div class="capture-top">
+    <button class="glass" id="captureCancel">Sluiten</button>
+    <div class="take-badge"><b></b><span id="takeBadge">3s</span></div>
+    <button class="glass icon" id="flipBtn" aria-label="Wissel camera">⟲</button>
+  </div>
+
   <div class="capture-hud">
-    <div class="capture-count" id="captureCount">3</div>
-    <div class="capture-dot">
-      <svg class="capture-ring" viewBox="0 0 100 100" aria-hidden="true">
-        <circle id="captureArc" cx="50" cy="50" r="46" stroke-dasharray="289" stroke-dashoffset="0"></circle>
+    <div class="capture-hint" id="captureHint">Tik om op te nemen</div>
+    <button class="shutter" id="shutter" aria-label="Opnemen">
+      <svg class="shutter-ring" viewBox="0 0 100 100" aria-hidden="true">
+        <circle class="track" cx="50" cy="50" r="46"></circle>
+        <circle class="run" id="shutterRun" cx="50" cy="50" r="46"
+                stroke-dasharray="289" stroke-dashoffset="289"></circle>
       </svg>
-    </div>
-    <div class="capture-hint">Stopt vanzelf</div>
+      <span class="shutter-core"></span>
+    </button>
+  </div>
+
+  <div class="denied" id="denied">
+    <h2>De camera mag hier niet aan</h2>
+    <p id="deniedWhy"></p>
+    <p>
+      Opnemen in de app zelf werkt alleen over <code>https</code>. Start de server
+      opnieuw zonder <code>MOSAIC_HTTP=1</code> en accepteer op je telefoon de
+      certificaatwaarschuwing — het is je eigen laptop.
+    </p>
+    <button class="btn" id="useSystemCamera">Gebruik dan mijn camera-app</button>
+    <button class="btn" id="deniedClose">Terug</button>
   </div>
 </div>
 
@@ -312,7 +415,6 @@
 <script type="module">
 const el = (id) => document.getElementById(id);
 const CLIP_SECONDS_OPTIONS = [1, 2, 3, 4, 5];
-const ARC = 295.3;
 const FALLBACK_CROSSFADE_MS = 400;
 
 const store = {
@@ -511,18 +613,6 @@ let recorder = null;
 let liveStream = null;
 let useGetUserMedia = null;
 
-function runArc(durationMs) {
-  const arc = el('arc');
-  const started = performance.now();
-  const step = (now) => {
-    const progress = Math.min((now - started) / durationMs, 1);
-    arc.style.strokeDashoffset = String(ARC * (1 - progress));
-    if (progress < 1 && recorder?.state === 'recording') requestAnimationFrame(step);
-    else arc.style.strokeDashoffset = String(ARC);
-  };
-  requestAnimationFrame(step);
-}
-
 async function sendClip(blob) {
   const durationMs = group.clipSeconds * 1000;
   const author = encodeURIComponent(store.name);
@@ -554,6 +644,17 @@ async function sendClip(blob) {
  * finished. From the outside that is indistinguishable from "it never stopped
  * recording", and it is the wrong default for something pointed at people.
  */
+const RING = 289;
+let facing = 'environment';
+
+/**
+ * Hand the camera back.
+ *
+ * Holding the stream open between takes saved a second of start-up and cost
+ * the camera staying on, indicator light included, long after the clip was
+ * finished. From the outside that is indistinguishable from "it never stopped
+ * recording", and it is the wrong default for a lens pointed at people.
+ */
 function releaseCamera() {
   el('preview').srcObject = null;
   if (liveStream) {
@@ -563,65 +664,117 @@ function releaseCamera() {
 }
 
 function closeCapture() {
-  el('capture').classList.remove('open');
+  el('capture').classList.remove('open', 'rolling');
+  el('denied').classList.remove('open');
   releaseCamera();
-  el('recBtn').disabled = false;
-  el('recLabel').textContent = group ? `${group.clipSeconds}s` : '';
+  el('shutterRun').style.strokeDashoffset = String(RING);
+  el('bigCount').textContent = '';
+  el('shutter').disabled = false;
+  el('captureHint').textContent = 'Tik om op te nemen';
 }
 
-const ARC_CAPTURE = 289;
+const buzz = (pattern) => navigator.vibrate?.(pattern);
 
-async function recordLive() {
-  const durationMs = group.clipSeconds * 1000;
+/** Open the viewfinder. Nothing records until the shutter is tapped. */
+async function openCamera() {
+  el('capture').classList.add('open');
+  el('takeBadge').textContent = `${group.clipSeconds}s`;
+  el('captureHint').textContent = 'Camera starten…';
 
-  liveStream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: 'environment', width: { ideal: 720 }, height: { ideal: 1280 } },
-    audio: true,
-  });
+  try {
+    liveStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: facing, width: { ideal: 720 }, height: { ideal: 1280 } },
+      audio: true,
+    });
+  } catch (error) {
+    // Say what went wrong instead of quietly launching the phone's camera app —
+    // that silent hand-off is exactly why "it never stops by itself" was a
+    // mystery rather than an explanation.
+    useGetUserMedia = false;
+    el('deniedWhy').textContent =
+      error?.name === 'NotAllowedError'
+        ? 'Je hebt toegang geweigerd, of deze pagina draait ingebed en mag de camera niet gebruiken.'
+        : `De camera kon niet starten (${error?.name ?? 'onbekend'}).`;
+    el('denied').classList.add('open');
+    renderMode();
+    return false;
+  }
 
-  // Show what is being filmed. Recording blind is why nobody could tell the
-  // recorder had stopped itself.
   const preview = el('preview');
   preview.srcObject = liveStream;
+  preview.classList.toggle('mirrored', facing === 'user');
   await preview.play().catch(() => {});
-  el('capture').classList.add('open');
+
+  useGetUserMedia = true;
+  el('captureHint').textContent = `Tik — hij neemt ${group.clipSeconds} seconden op en stopt zelf`;
+  renderMode();
+  return true;
+}
+
+/** One tap, a fixed length, no stop button. The ring is the whole interface. */
+function rollTake() {
+  if (!liveStream || recorder) return;
+  const durationMs = group.clipSeconds * 1000;
 
   const chunks = [];
   recorder = new MediaRecorder(liveStream);
-  recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+  recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
   recorder.onstop = async () => {
     const blob = new Blob(chunks, { type: recorder.mimeType || 'video/webm' });
     recorder = null;
+    buzz(30);
+    el('flash').classList.add('fire');
+    setTimeout(() => el('flash').classList.remove('fire'), 400);
     closeCapture();
     if (blob.size > 0) await sendClip(blob);
   };
 
   recorder.start();
-  el('recBtn').disabled = true;
+  buzz(20);
+  el('capture').classList.add('rolling');
+  el('shutter').disabled = true;
+  el('captureHint').textContent = 'Stopt vanzelf';
 
-  const arc = el('captureArc');
-  const count = el('captureCount');
+  const run = el('shutterRun');
+  const big = el('bigCount');
   const started = performance.now();
+  let lastWhole = null;
 
   const frame = (now) => {
-    const progress = Math.min((now - started) / durationMs, 1);
-    arc.style.strokeDashoffset = String(ARC_CAPTURE * progress);
-    count.textContent = String(Math.max(0, Math.ceil((durationMs - (now - started)) / 1000)));
+    const elapsed = now - started;
+    const progress = Math.min(elapsed / durationMs, 1);
+    run.style.strokeDashoffset = String(RING * (1 - progress));
+
+    const whole = Math.max(0, Math.ceil((durationMs - elapsed) / 1000));
+    if (whole !== lastWhole) {
+      lastWhole = whole;
+      big.textContent = whole > 0 ? String(whole) : '';
+      if (whole > 0) buzz(8);
+    }
     if (progress < 1 && recorder?.state === 'recording') requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);
 
-  // One tap, a fixed length, nothing to hold and nothing to trim. The second
-  // timer is a failsafe: if stop() is ignored, killing the tracks ends the
-  // recording anyway rather than leaving the camera running.
   setTimeout(() => { if (recorder?.state === 'recording') recorder.stop(); }, durationMs);
+  // Failsafe: if stop() is ignored, killing the tracks ends the take anyway
+  // rather than leaving the camera running.
   setTimeout(() => {
     if (recorder?.state === 'recording') {
       console.warn('recorder ignored stop(); releasing the camera');
       releaseCamera();
+      closeCapture();
     }
   }, durationMs + 1500);
 }
+
+el('shutter').onclick = rollTake;
+
+el('flipBtn').onclick = async () => {
+  if (recorder) return; // never mid-take
+  facing = facing === 'environment' ? 'user' : 'environment';
+  releaseCamera();
+  await openCamera();
+};
 
 el('captureCancel').onclick = () => {
   if (recorder?.state === 'recording') {
@@ -633,38 +786,29 @@ el('captureCancel').onclick = () => {
   closeCapture();
 };
 
-let warnedAboutFallback = false;
+el('deniedClose').onclick = closeCapture;
+el('useSystemCamera').onclick = () => {
+  closeCapture();
+  el('fileCapture').click();
+};
 
 el('recBtn').onclick = async () => {
   if (!group) return;
 
-  // Recording inside the page needs a secure context, which is why the server
-  // serves https. Without it the phone's own camera app takes over — that one
-  // keeps rolling until you stop it, so the length is enforced afterwards by
-  // the trim on upload instead of by the recorder.
-  if (useGetUserMedia === false || !window.isSecureContext) {
+  // Recording inside the app needs a secure context, which is why the server
+  // serves https. Without one the viewfinder cannot open at all, and the panel
+  // inside it explains that rather than silently launching another app.
+  if (!window.isSecureContext) {
     useGetUserMedia = false;
-    if (!warnedAboutFallback) {
-      warnedAboutFallback = true;
-      toast(group.exactLengths
-        ? `Je eigen camera opent — hij wordt daarna op ${group.clipSeconds}s geknipt`
-        : 'Je eigen camera opent — stop zelf na een paar seconden');
-    }
-    return el('fileCapture').click();
+    el('capture').classList.add('open');
+    el('deniedWhy').textContent =
+      'Deze pagina draait niet over https, en dan geeft je telefoon geen enkele webpagina toegang tot de camera.';
+    el('denied').classList.add('open');
+    renderMode();
+    return;
   }
 
-  try {
-    await recordLive();
-    useGetUserMedia = true;
-    renderMode();
-  } catch {
-    useGetUserMedia = false;
-    releaseCamera();
-    el('capture').classList.remove('open');
-    el('recBtn').disabled = false;
-    renderMode();
-    el('fileCapture').click();
-  }
+  await openCamera();
 };
 
 /** Say plainly which recorder is in play; the difference is the auto-stop. */
@@ -672,7 +816,7 @@ function renderMode() {
   if (!group) return;
   const node = el('recMode');
   if (useGetUserMedia === true) {
-    node.textContent = `Opnemen gebeurt in deze pagina en stopt vanzelf na ${group.clipSeconds}s.`;
+    node.textContent = `Opnemen gebeurt in de app zelf en stopt vanzelf na ${group.clipSeconds}s.`;
   } else if (useGetUserMedia === false) {
     node.textContent = group.exactLengths
       ? `Je eigen camera-app neemt op — die stopt niet vanzelf, maar de clip wordt op ${group.clipSeconds}s geknipt.`

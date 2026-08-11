@@ -18,6 +18,15 @@ bad(){ printf '  FAIL %s\n' "$1"; exit 1; }
 
 curl -sf "$BASE/" | grep -q "Eén film, samen" && ok "page served" || bad "page"
 
+# The camera must live inside the app. A regression here is invisible in the
+# API but is the whole difference between "it stops by itself" and "my own
+# camera app opened and kept rolling".
+PAGE=$(curl -sf "$BASE/")
+echo "$PAGE" | grep -q 'id="shutter"' && ok "viewfinder has an in-app shutter" || bad "no shutter"
+echo "$PAGE" | grep -q 'id="preview"' && ok "viewfinder shows a live preview" || bad "no preview"
+echo "$PAGE" | grep -q 'id="denied"' && ok "blocked camera is explained, not silently handed off" || bad "no denial panel"
+echo "$PAGE" | grep -q 'getTracks().forEach' && ok "camera tracks are released after a take" || bad "camera never released"
+
 CODE=$(curl -sf -X POST "$BASE/api/groups" -H 'content-type: application/json' \
   -d '{"title":"Kreta 2026","clipSeconds":2}' | node -pe 'JSON.parse(require("fs").readFileSync(0)).code')
 [ ${#CODE} -eq 6 ] && ok "group created ($CODE)" || bad "group create"
