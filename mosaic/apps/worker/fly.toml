@@ -1,0 +1,16 @@
+app = "mosaic-worker"
+primary_region = "ams"   # EU region: clip bytes stay in the EU.
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  POLL_INTERVAL_MS = "2000"
+  MAX_ATTEMPTS = "5"
+
+# No [http_service]: this is a queue consumer, nothing calls it over HTTP.
+# Secrets (DATABASE_URL, R2_*) are set with `fly secrets set`, never here.
+
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "2gb"          # ffmpeg on 1080x1920 wants headroom

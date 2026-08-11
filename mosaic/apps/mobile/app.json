@@ -1,0 +1,47 @@
+{
+  "expo": {
+    "name": "Mosaic",
+    "slug": "mosaic",
+    "scheme": "mosaic",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "app.mosaic.mobile",
+      "usesAppleSignIn": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Om clips van een paar seconden op te nemen voor je gedeelde album.",
+        "NSMicrophoneUsageDescription": "Om geluid bij je clips op te nemen.",
+        "NSPhotoLibraryUsageDescription": "Om bestaande video's aan je album toe te voegen."
+      },
+      "associatedDomains": ["applinks:mosaic.app"]
+    },
+    "android": {
+      "package": "app.mosaic.mobile",
+      "permissions": ["CAMERA", "RECORD_AUDIO"],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [{ "scheme": "https", "host": "mosaic.app", "pathPrefix": "/join" }],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-apple-authentication",
+      "expo-video",
+      [
+        "react-native-vision-camera",
+        {
+          "cameraPermissionText": "Mosaic gebruikt de camera om korte clips op te nemen.",
+          "enableMicrophonePermission": true
+        }
+      ]
+    ],
+    "experiments": { "typedRoutes": true }
+  }
+}

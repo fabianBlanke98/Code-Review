@@ -1,0 +1,985 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0C0F15">
+<title>Mosaic</title>
+<style>
+  :root {
+    --ground:#EFF1F4; --surface:#FFFFFF; --surface-alt:#E4E8ED; --ink:#10131A;
+    --ink-soft:#4A5563; --ink-faint:#8A94A2; --rule:#D3D9E0; --amber:#B8701C;
+    --amber-soft:#F2E3D0;
+    --ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground:#0C0F15; --surface:#151A22; --surface-alt:#1E242E; --ink:#EDF0F4;
+      --ink-soft:#A3AEBC; --ink-faint:#6B7684; --rule:#262E39; --amber:#E8963A;
+      --amber-soft:#33261A;
+    }
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body {
+    margin:0; background:var(--ground); color:var(--ink); font-family:var(--ui);
+    font-size:15px; line-height:1.45; -webkit-font-smoothing:antialiased;
+  }
+  .shell { max-width:540px; margin:0 auto; padding:0 16px 140px; }
+  .hidden { display:none !important; }
+
+  header { padding:26px 0 4px; }
+  .eyebrow {
+    font-family:var(--mono); font-size:11px; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--ink-faint);
+  }
+  h1 { font-size:29px; line-height:1.12; letter-spacing:-.02em; margin:6px 0 0; }
+  h2 { font-size:20px; margin:0 0 6px; letter-spacing:-.01em; }
+  p { margin:0 0 12px; }
+  .lede { color:var(--ink-soft); }
+
+  .runtime {
+    font-family:var(--mono); font-size:50px; line-height:1; letter-spacing:-.03em;
+    font-variant-numeric:tabular-nums; margin-top:18px;
+  }
+  .runtime small { font-size:19px; color:var(--ink-faint); letter-spacing:0; }
+  .sub { color:var(--ink-soft); font-size:14px; margin-top:6px; }
+
+  section { margin-top:24px; }
+  .label {
+    font-family:var(--mono); font-size:11px; letter-spacing:.12em;
+    text-transform:uppercase; color:var(--ink-faint); display:block; margin-bottom:9px;
+  }
+
+  input[type=text] {
+    width:100%; font:inherit; font-size:17px; padding:14px;
+    border:1px solid var(--rule); border-radius:12px;
+    background:var(--surface); color:var(--ink);
+  }
+  input[type=text]:focus-visible { outline:2px solid var(--amber); outline-offset:1px; }
+
+  .lengths { display:flex; gap:8px; }
+  .len {
+    flex:1; font:inherit; font-family:var(--mono); font-size:15px; font-weight:600;
+    padding:13px 0; border-radius:10px; border:1px solid var(--rule);
+    background:var(--surface); color:var(--ink-soft); cursor:pointer;
+  }
+  .len[aria-pressed=true] { background:var(--ink); border-color:var(--ink); color:var(--ground); }
+
+  .btn {
+    font:inherit; font-weight:600; padding:15px 22px; border-radius:12px;
+    border:1px solid var(--rule); background:var(--surface); color:var(--ink);
+    cursor:pointer; width:100%;
+  }
+  .btn.primary { background:var(--ink); color:var(--ground); border-color:var(--ink); }
+  .btn:disabled { opacity:.45; }
+  .btn + .btn { margin-top:10px; }
+
+  .code {
+    font-family:var(--mono); font-size:30px; letter-spacing:.22em; font-weight:700;
+    text-align:center; padding:16px; border-radius:12px;
+    background:var(--amber-soft); color:var(--amber); margin:4px 0 12px;
+  }
+
+  .reel { display:flex; flex-direction:column; gap:6px; margin-top:10px; }
+  .shot {
+    display:grid; grid-template-columns:28px 44px 1fr auto; gap:12px; align-items:center;
+    background:var(--surface); border:1px solid var(--rule); border-radius:10px; padding:8px 12px;
+  }
+  .n {
+    font-family:var(--mono); font-size:13px; font-variant-numeric:tabular-nums;
+    color:var(--ink-faint); text-align:right;
+  }
+  .shot video {
+    width:44px; height:78px; object-fit:cover; border-radius:5px;
+    background:var(--surface-alt); display:block;
+  }
+  .who { font-weight:600; font-size:14px; }
+  .when { font-size:12px; color:var(--ink-faint); margin-top:2px; }
+  .shot-actions { display:flex; gap:6px; }
+  .act {
+    font:inherit; font-size:12px; font-weight:600; padding:0 10px; height:32px;
+    display:grid; place-items:center; border-radius:8px; border:1px solid var(--rule);
+    background:var(--surface); color:var(--ink-soft); cursor:pointer; white-space:nowrap;
+  }
+  .act.kill { width:32px; padding:0; font-size:16px; color:var(--ink-faint); }
+  .shot.mine { border-color:var(--amber); }
+  .shot.replacing { background:var(--amber-soft); }
+
+  .empty {
+    border:1px dashed var(--rule); border-radius:12px; padding:28px 22px;
+    text-align:center; color:var(--ink-soft);
+  }
+  .empty strong { display:block; color:var(--ink); font-size:16px; margin-bottom:6px; }
+
+  .bar {
+    position:fixed; left:0; right:0; bottom:0;
+    padding:14px 16px calc(14px + env(safe-area-inset-bottom));
+    background:var(--ground); border-top:1px solid var(--rule);
+    display:flex; gap:12px; align-items:center; justify-content:center;
+  }
+  .bar .btn { width:auto; padding:14px 18px; border-radius:999px; }
+  .rec {
+    position:relative; width:72px; height:72px; border-radius:50%; border:none;
+    background:var(--amber); cursor:pointer; display:grid; place-items:center; flex:none;
+  }
+  .rec:disabled { opacity:.5; }
+  .rec span {
+    font-family:var(--mono); font-size:15px; font-weight:700;
+    font-variant-numeric:tabular-nums; color:#14100A;
+  }
+  .rec .arc { position:absolute; inset:-7px; }
+  .rec .arc circle {
+    fill:none; stroke:var(--amber); stroke-width:3;
+    transform:rotate(-90deg); transform-origin:50% 50%;
+  }
+
+  /* --- the camera ---------------------------------------------------------
+     Full-bleed viewfinder, one shutter, a ring that drains as the take runs.
+     Nothing to hold and nothing to stop: the length was chosen once, by the
+     group, and the only job left on this screen is to point and tap. */
+  .capture { position:fixed; inset:0; background:#000; display:none; z-index:45; }
+  .capture.open { display:block; }
+  .capture video {
+    position:absolute; inset:0; width:100%; height:100%; object-fit:cover;
+  }
+  .capture video.mirrored { transform:scaleX(-1); }
+
+  /* Rule-of-thirds guides: faint, and gone the moment recording starts. */
+  .guides {
+    position:absolute; inset:0; z-index:1; pointer-events:none;
+    opacity:.22; transition:opacity .25s ease;
+    background:
+      linear-gradient(to right, transparent 33.2%, #fff 33.2%, #fff 33.5%, transparent 33.5%,
+                      transparent 66.4%, #fff 66.4%, #fff 66.7%, transparent 66.7%),
+      linear-gradient(to bottom, transparent 33.2%, #fff 33.2%, #fff 33.5%, transparent 33.5%,
+                      transparent 66.4%, #fff 66.4%, #fff 66.7%, transparent 66.7%);
+  }
+  .capture.rolling .guides { opacity:0; }
+
+  /* A red hairline around the frame while the take runs — the one unmistakable
+     "this is recording" signal, and it disappears the instant it stops. */
+  .rolling-edge {
+    position:absolute; inset:0; z-index:2; pointer-events:none;
+    box-shadow:inset 0 0 0 3px rgba(232,76,60,0); transition:box-shadow .2s ease;
+  }
+  .capture.rolling .rolling-edge { box-shadow:inset 0 0 0 3px rgba(232,76,60,.95); }
+
+  .capture-top {
+    position:absolute; top:calc(14px + env(safe-area-inset-top)); left:14px; right:14px;
+    z-index:4; display:flex; align-items:center; justify-content:space-between; gap:12px;
+  }
+  .glass {
+    font:inherit; font-size:14px; font-weight:600; color:#fff; border:none;
+    background:rgba(0,0,0,.42); border-radius:999px; padding:10px 16px;
+    backdrop-filter:blur(8px); cursor:pointer;
+  }
+  .glass:focus-visible { outline:2px solid #fff; outline-offset:2px; }
+  .glass.icon { width:44px; height:44px; padding:0; display:grid; place-items:center; font-size:18px; }
+
+  .take-badge {
+    font-family:var(--mono); font-size:13px; letter-spacing:.1em; font-weight:700;
+    color:#fff; background:rgba(0,0,0,.42); backdrop-filter:blur(8px);
+    border-radius:999px; padding:10px 14px; display:flex; align-items:center; gap:8px;
+  }
+  .take-badge b { width:8px; height:8px; border-radius:50%; background:#e84c3c; display:block; }
+  .capture.rolling .take-badge b { animation:blink 1s steps(2, start) infinite; }
+  @keyframes blink { 50% { opacity:.15; } }
+
+  .capture-hud {
+    position:absolute; left:0; right:0; bottom:calc(38px + env(safe-area-inset-bottom));
+    display:flex; flex-direction:column; align-items:center; gap:18px; z-index:4;
+  }
+  .capture-hint {
+    color:rgba(255,255,255,.92); font-size:15px; font-weight:500;
+    text-shadow:0 1px 10px rgba(0,0,0,.8); min-height:20px;
+  }
+
+  .shutter {
+    position:relative; width:86px; height:86px; border:none; background:none;
+    cursor:pointer; display:grid; place-items:center; flex:none;
+  }
+  .shutter:disabled { cursor:default; }
+  .shutter-core {
+    width:66px; height:66px; border-radius:50%; background:#fff;
+    transition:width .22s cubic-bezier(.2,.8,.3,1), height .22s cubic-bezier(.2,.8,.3,1),
+               border-radius .22s cubic-bezier(.2,.8,.3,1), background .2s;
+  }
+  .capture.rolling .shutter-core {
+    width:30px; height:30px; border-radius:8px; background:#e84c3c;
+  }
+  .shutter-ring { position:absolute; inset:0; }
+  .shutter-ring .track { fill:none; stroke:rgba(255,255,255,.32); stroke-width:4; }
+  .shutter-ring .run {
+    fill:none; stroke:#fff; stroke-width:4; stroke-linecap:round;
+    transform:rotate(-90deg); transform-origin:50% 50%;
+  }
+  .shutter-count {
+    position:absolute; font-family:var(--mono); font-size:22px; font-weight:700;
+    font-variant-numeric:tabular-nums; color:#14100A; pointer-events:none;
+    opacity:0; transition:opacity .15s;
+  }
+  .capture.rolling .shutter-count { opacity:0; }
+
+  .big-count {
+    position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+    z-index:3; font-family:var(--mono); font-size:110px; font-weight:700; line-height:1;
+    font-variant-numeric:tabular-nums; color:#fff; text-shadow:0 4px 40px rgba(0,0,0,.55);
+    opacity:0; pointer-events:none; transition:opacity .2s;
+  }
+  .capture.rolling .big-count { opacity:.92; }
+
+  /* One white frame on stop: the camera equivalent of a shutter click. */
+  .flash {
+    position:absolute; inset:0; z-index:6; background:#fff; opacity:0;
+    pointer-events:none;
+  }
+  .flash.fire { animation:flash .35s ease-out; }
+  @keyframes flash { 0% { opacity:.85; } 100% { opacity:0; } }
+
+  /* Shown instead of silently opening the phone's camera app. */
+  .denied {
+    position:absolute; inset:0; z-index:7; background:var(--ground); color:var(--ink);
+    display:none; flex-direction:column; justify-content:center; gap:14px;
+    padding:32px; text-align:left;
+  }
+  .denied.open { display:flex; }
+  .denied h2 { margin:0; }
+  .denied p { color:var(--ink-soft); margin:0; }
+  .denied code {
+    font-family:var(--mono); font-size:13px; background:var(--surface-alt);
+    padding:2px 6px; border-radius:5px;
+  }
+
+  .rec-mode {
+    font-size:12px; color:var(--ink-faint); text-align:center; margin-top:10px;
+  }
+
+  .player { position:fixed; inset:0; background:#000; display:none; z-index:40; }
+  .player.open { display:block; }
+  .player video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:0; }
+  .progress {
+    position:absolute; top:14px; left:14px; right:14px; display:flex; gap:3px;
+    z-index:2; pointer-events:none;
+  }
+  .progress i { flex:1; height:3px; background:rgba(255,255,255,.28); border-radius:2px; }
+  .progress i.done { background:#fff; }
+  .player-close {
+    position:absolute; top:40px; right:16px; z-index:3; font:inherit; font-size:14px;
+    font-weight:600; color:#fff; background:rgba(0,0,0,.45); border:none;
+    border-radius:999px; padding:9px 16px;
+  }
+
+  .note {
+    margin-top:26px; padding:14px 16px; border-left:2px solid var(--amber);
+    background:var(--surface); border-radius:0 8px 8px 0;
+    font-size:13px; line-height:1.55; color:var(--ink-soft);
+  }
+  .toast {
+    position:fixed; left:50%; bottom:112px; transform:translateX(-50%);
+    background:var(--ink); color:var(--ground); padding:10px 16px; border-radius:999px;
+    font-size:13px; z-index:50; opacity:0; pointer-events:none; transition:opacity .2s;
+    max-width:90vw; text-align:center;
+  }
+  .toast.show { opacity:1; }
+  @media (prefers-reduced-motion: reduce) { * { transition-duration:.01ms !important; } }
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <!-- who are you ------------------------------------------------------- -->
+  <div id="nameView" class="hidden">
+    <header><span class="eyebrow">Mosaic</span><h1>Hoe heet je?</h1></header>
+    <p class="lede">Staat straks bij je opnames, zodat de groep ziet wie wat filmde.</p>
+    <section>
+      <input type="text" id="nameInput" placeholder="Fabian" autocomplete="given-name" enterkeyhint="go">
+      <div style="margin-top:12px"><button class="btn primary" id="nameSave">Verder</button></div>
+    </section>
+  </div>
+
+  <!-- lobby -------------------------------------------------------------- -->
+  <div id="lobbyView" class="hidden">
+    <header><span class="eyebrow">Mosaic</span><h1>Eén film, samen</h1></header>
+    <p class="lede">
+      Maak een groep, deel de code, en alles wat iedereen opneemt komt achter
+      elkaar in dezelfde film.
+    </p>
+
+    <section>
+      <span class="label">Nieuwe groep</span>
+      <input type="text" id="newTitle" placeholder="Kreta 2026" maxlength="80">
+      <div style="margin-top:14px">
+        <span class="label">Hoe lang duurt één opname?</span>
+        <div class="lengths" id="lengths"></div>
+      </div>
+      <div style="margin-top:14px"><button class="btn primary" id="createBtn">Groep aanmaken</button></div>
+    </section>
+
+    <section>
+      <span class="label">Of doe mee</span>
+      <input type="text" id="joinCode" placeholder="Groepscode" maxlength="6"
+             autocapitalize="characters" autocomplete="off" enterkeyhint="go"
+             style="text-transform:uppercase; font-family:var(--mono); letter-spacing:.2em">
+      <div style="margin-top:12px"><button class="btn" id="joinBtn">Meedoen</button></div>
+    </section>
+  </div>
+
+  <!-- the film ------------------------------------------------------------ -->
+  <div id="filmView" class="hidden">
+    <header>
+      <span class="eyebrow" id="filmEyebrow">Onze film</span>
+      <h1 id="filmTitle">…</h1>
+      <div class="runtime" id="runtime">0<small>s</small></div>
+      <div class="sub" id="filmSub">Nog geen opnames</div>
+    </header>
+
+    <section>
+      <span class="label">Nodig de rest uit</span>
+      <div class="code" id="groupCode">------</div>
+      <button class="btn" id="shareBtn">Deel de link</button>
+    </section>
+
+    <section>
+      <span class="label">De film</span>
+      <div class="reel" id="reel"></div>
+      <div class="empty" id="empty">
+        <strong>Nog leeg</strong>
+        Tik op de knop onderin. Hij neemt precies de afgesproken tijd op en stopt
+        vanzelf — alles wat daarna wordt gefilmd komt er achteraan bij.
+      </div>
+    </section>
+
+    <div class="rec-mode" id="recMode"></div>
+    <div class="note" id="exportNote"></div>
+  </div>
+</div>
+
+<div class="bar hidden" id="bar">
+  <button class="btn" id="playBtn" disabled>Bekijk film</button>
+  <button class="rec" id="recBtn" aria-label="Camera openen">
+    <span id="recLabel">3s</span>
+  </button>
+  <button class="btn" id="leaveBtn">Groepen</button>
+</div>
+
+<div class="capture" id="capture">
+  <video id="preview" autoplay muted playsinline></video>
+  <div class="guides"></div>
+  <div class="rolling-edge"></div>
+  <div class="big-count" id="bigCount"></div>
+  <div class="flash" id="flash"></div>
+
+  <div class="capture-top">
+    <button class="glass" id="captureCancel">Sluiten</button>
+    <div class="take-badge"><b></b><span id="takeBadge">3s</span></div>
+    <button class="glass icon" id="flipBtn" aria-label="Wissel camera">⟲</button>
+  </div>
+
+  <div class="capture-hud">
+    <div class="capture-hint" id="captureHint">Tik om op te nemen</div>
+    <button class="shutter" id="shutter" aria-label="Opnemen">
+      <svg class="shutter-ring" viewBox="0 0 100 100" aria-hidden="true">
+        <circle class="track" cx="50" cy="50" r="46"></circle>
+        <circle class="run" id="shutterRun" cx="50" cy="50" r="46"
+                stroke-dasharray="289" stroke-dashoffset="289"></circle>
+      </svg>
+      <span class="shutter-core"></span>
+    </button>
+  </div>
+
+  <div class="denied" id="denied">
+    <h2>De camera mag hier niet aan</h2>
+    <p id="deniedWhy"></p>
+    <p>
+      Opnemen in de app zelf werkt alleen over <code>https</code>. Start de server
+      opnieuw zonder <code>MOSAIC_HTTP=1</code> en accepteer op je telefoon de
+      certificaatwaarschuwing — het is je eigen laptop.
+    </p>
+    <button class="btn" id="useSystemCamera">Gebruik dan mijn camera-app</button>
+    <button class="btn" id="deniedClose">Terug</button>
+  </div>
+</div>
+
+<input type="file" accept="video/*" capture="environment" id="fileCapture" hidden>
+
+<div class="player" id="player">
+  <video id="videoA" playsinline preload="auto"></video>
+  <video id="videoB" playsinline preload="auto"></video>
+  <div class="progress" id="progress"></div>
+  <button class="player-close" id="playerClose">Sluiten</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="module">
+const el = (id) => document.getElementById(id);
+const CLIP_SECONDS_OPTIONS = [1, 2, 3, 4, 5];
+const FALLBACK_CROSSFADE_MS = 400;
+
+const store = {
+  get name() { return localStorage.getItem('mosaic-name') ?? ''; },
+  set name(v) { localStorage.setItem('mosaic-name', v); },
+};
+
+let group = null;        // the group we are looking at
+let stream = null;       // EventSource
+let newClipSeconds = 3;
+let replacing = null;
+
+function toast(message) {
+  const node = el('toast');
+  node.textContent = message;
+  node.classList.add('show');
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => node.classList.remove('show'), 3000);
+}
+
+const show = (view) => {
+  for (const id of ['nameView', 'lobbyView', 'filmView']) {
+    el(id).classList.toggle('hidden', id !== view);
+  }
+  el('bar').classList.toggle('hidden', view !== 'filmView');
+};
+
+async function api(path, options = {}) {
+  const response = await fetch(path, options);
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error ?? `http_${response.status}`);
+  }
+  return response.json();
+}
+
+// --- lobby ------------------------------------------------------------------
+function renderLengths() {
+  el('lengths').replaceChildren(...CLIP_SECONDS_OPTIONS.map((seconds) => {
+    const button = document.createElement('button');
+    button.className = 'len';
+    button.textContent = `${seconds}s`;
+    button.setAttribute('aria-pressed', String(newClipSeconds === seconds));
+    button.onclick = () => { newClipSeconds = seconds; renderLengths(); };
+    return button;
+  }));
+}
+
+el('createBtn').onclick = async () => {
+  try {
+    const created = await api('/api/groups', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: el('newTitle').value, clipSeconds: newClipSeconds }),
+    });
+    location.hash = `#/g/${created.code}`;
+  } catch {
+    toast('Aanmaken mislukt — draait de server nog?');
+  }
+};
+
+const joinTyped = () => {
+  const code = el('joinCode').value.trim().toUpperCase();
+  if (code.length === 6) location.hash = `#/g/${code}`;
+  else toast('Een groepscode is 6 tekens');
+};
+el('joinBtn').onclick = joinTyped;
+el('joinCode').addEventListener('keydown', (e) => { if (e.key === 'Enter') joinTyped(); });
+
+el('nameSave').onclick = () => {
+  const name = el('nameInput').value.trim();
+  if (!name) return toast('Vul even een naam in');
+  store.name = name;
+  route();
+};
+el('nameInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') el('nameSave').click(); });
+
+el('leaveBtn').onclick = () => { location.hash = ''; };
+window.addEventListener('pagehide', () => releaseCamera());
+
+// --- the film ---------------------------------------------------------------
+const mediaUrl = (clip) =>
+  `/api/groups/${group.code}/clips/${clip.id}/media?r=${clip.revision}`;
+
+function renderFilm() {
+  const clips = group.clips;
+  const seconds = Math.round(clips.reduce((sum, c) => sum + c.durationMs, 0) / 1000);
+  const people = new Set(clips.map((c) => c.author)).size;
+
+  el('filmTitle').textContent = group.title;
+  el('groupCode').textContent = group.code;
+  el('recLabel').textContent = `${group.clipSeconds}s`;
+  el('runtime').innerHTML = seconds < 60
+    ? `${seconds}<small>s</small>`
+    : `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+  el('filmSub').textContent = clips.length
+    ? `${clips.length} ${clips.length === 1 ? 'opname' : 'opnames'} van ${people} ${people === 1 ? 'persoon' : 'mensen'} · ${group.clipSeconds}s per stuk`
+    : 'Nog geen opnames';
+
+  el('empty').classList.toggle('hidden', clips.length > 0);
+  el('playBtn').disabled = clips.length === 0;
+
+  renderMode();
+
+  el('exportNote').innerHTML = group.canExport
+    ? `<strong>De aftermovie.</strong> <a href="/api/groups/${group.code}/film" download="${group.title}.mp4">Download alles als één MP4</a> — met dezelfde overvloeiing als hierboven. Dat is een echte encode, dus even geduld bij veel clips.`
+    : '<strong>Geen ffmpeg op de laptop.</strong> Afspelen werkt, maar clips worden niet op maat geknipt en één MP4 maken lukt niet. Installeer ffmpeg en start de server opnieuw.';
+
+  el('reel').replaceChildren(...clips.map((clip, index) => {
+    const mine = clip.author === store.name;
+    const row = document.createElement('div');
+    row.className = `shot${mine ? ' mine' : ''}${replacing === clip.id ? ' replacing' : ''}`;
+
+    const n = document.createElement('div');
+    n.className = 'n';
+    n.textContent = String(index + 1);
+
+    const preview = document.createElement('video');
+    preview.muted = true;
+    preview.playsInline = true;
+    preview.preload = 'metadata';
+    preview.src = `${mediaUrl(clip)}#t=0.1`;
+
+    const meta = document.createElement('div');
+    const who = document.createElement('div');
+    who.className = 'who';
+    who.textContent = clip.author;
+    const when = document.createElement('div');
+    when.className = 'when';
+    when.textContent = clip.revision > 1
+      ? `${clip.revision - 1}× opnieuw opgenomen`
+      : `${(clip.durationMs / 1000).toFixed(1)}s`;
+    meta.append(who, when);
+
+    const actions = document.createElement('div');
+    actions.className = 'shot-actions';
+
+    // Only your own clips: replacing somebody else's would be putting words in
+    // their mouth, which is a different thing from deleting your own take.
+    if (mine) {
+      const again = document.createElement('button');
+      again.className = 'act';
+      again.textContent = 'Opnieuw';
+      again.onclick = () => {
+        replacing = clip.id;
+        renderFilm();
+        toast('Tik op opnemen — deze plek wordt overschreven');
+      };
+
+      const kill = document.createElement('button');
+      kill.className = 'act kill';
+      kill.textContent = '×';
+      kill.setAttribute('aria-label', 'Verwijderen');
+      kill.onclick = async () => {
+        if (!confirm('Deze opname verwijderen?')) return;
+        try {
+          await api(`/api/groups/${group.code}/clips/${clip.id}?author=${encodeURIComponent(store.name)}`,
+                    { method: 'DELETE' });
+          if (replacing === clip.id) replacing = null;
+        } catch { toast('Verwijderen mislukt'); }
+      };
+
+      actions.append(again, kill);
+    }
+
+    row.append(n, preview, meta, actions);
+    return row;
+  }));
+}
+
+async function openGroup(code) {
+  if (stream) { stream.close(); stream = null; }
+  try {
+    group = await api(`/api/groups/${code}`);
+  } catch {
+    toast('Die groep bestaat niet');
+    location.hash = '';
+    return;
+  }
+
+  show('filmView');
+  renderFilm();
+
+  // Live: everyone sees the film grow while they are standing next to each other.
+  stream = new EventSource(`/api/groups/${code}/events`);
+  stream.onmessage = (event) => {
+    const next = JSON.parse(event.data);
+    group = { ...group, ...next };
+    renderFilm();
+  };
+  stream.onerror = () => { /* EventSource reconnects on its own */ };
+}
+
+// --- recording --------------------------------------------------------------
+let recorder = null;
+let liveStream = null;
+let useGetUserMedia = null;
+
+async function sendClip(blob) {
+  const durationMs = group.clipSeconds * 1000;
+  const author = encodeURIComponent(store.name);
+  const target = replacing
+    ? `/api/groups/${group.code}/clips/${replacing}/replace?author=${author}`
+    : `/api/groups/${group.code}/clips?author=${author}&durationMs=${durationMs}`;
+
+  const wasReplacing = replacing;
+  replacing = null;
+
+  try {
+    const response = await fetch(target, {
+      method: 'POST',
+      headers: { 'content-type': blob.type || 'video/mp4' },
+      body: blob,
+    });
+    if (!response.ok) throw new Error(String(response.status));
+    toast(wasReplacing ? 'Vervangen — hij houdt zijn plek' : 'Toegevoegd aan de film');
+  } catch {
+    toast('Uploaden mislukt — nog op hetzelfde wifi?');
+  }
+}
+
+/**
+ * Hand the camera back.
+ *
+ * Keeping the stream alive between takes saved a second of start-up and cost
+ * the camera staying on — indicator light included — long after the clip was
+ * finished. From the outside that is indistinguishable from "it never stopped
+ * recording", and it is the wrong default for something pointed at people.
+ */
+const RING = 289;
+let facing = 'environment';
+
+/**
+ * Hand the camera back.
+ *
+ * Holding the stream open between takes saved a second of start-up and cost
+ * the camera staying on, indicator light included, long after the clip was
+ * finished. From the outside that is indistinguishable from "it never stopped
+ * recording", and it is the wrong default for a lens pointed at people.
+ */
+function releaseCamera() {
+  el('preview').srcObject = null;
+  if (liveStream) {
+    liveStream.getTracks().forEach((track) => track.stop());
+    liveStream = null;
+  }
+}
+
+function closeCapture() {
+  el('capture').classList.remove('open', 'rolling');
+  el('denied').classList.remove('open');
+  releaseCamera();
+  el('shutterRun').style.strokeDashoffset = String(RING);
+  el('bigCount').textContent = '';
+  el('shutter').disabled = false;
+  el('captureHint').textContent = 'Tik om op te nemen';
+}
+
+const buzz = (pattern) => navigator.vibrate?.(pattern);
+
+/** Open the viewfinder. Nothing records until the shutter is tapped. */
+async function openCamera() {
+  el('capture').classList.add('open');
+  el('takeBadge').textContent = `${group.clipSeconds}s`;
+  el('captureHint').textContent = 'Camera starten…';
+
+  try {
+    liveStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: facing, width: { ideal: 720 }, height: { ideal: 1280 } },
+      audio: true,
+    });
+  } catch (error) {
+    // Say what went wrong instead of quietly launching the phone's camera app —
+    // that silent hand-off is exactly why "it never stops by itself" was a
+    // mystery rather than an explanation.
+    useGetUserMedia = false;
+    el('deniedWhy').textContent =
+      error?.name === 'NotAllowedError'
+        ? 'Je hebt toegang geweigerd, of deze pagina draait ingebed en mag de camera niet gebruiken.'
+        : `De camera kon niet starten (${error?.name ?? 'onbekend'}).`;
+    el('denied').classList.add('open');
+    renderMode();
+    return false;
+  }
+
+  const preview = el('preview');
+  preview.srcObject = liveStream;
+  preview.classList.toggle('mirrored', facing === 'user');
+  await preview.play().catch(() => {});
+
+  useGetUserMedia = true;
+  el('captureHint').textContent = `Tik — hij neemt ${group.clipSeconds} seconden op en stopt zelf`;
+  renderMode();
+  return true;
+}
+
+/** One tap, a fixed length, no stop button. The ring is the whole interface. */
+function rollTake() {
+  if (!liveStream || recorder) return;
+  const durationMs = group.clipSeconds * 1000;
+
+  const chunks = [];
+  recorder = new MediaRecorder(liveStream);
+  recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
+  recorder.onstop = async () => {
+    const blob = new Blob(chunks, { type: recorder.mimeType || 'video/webm' });
+    recorder = null;
+    buzz(30);
+    el('flash').classList.add('fire');
+    setTimeout(() => el('flash').classList.remove('fire'), 400);
+    closeCapture();
+    if (blob.size > 0) await sendClip(blob);
+  };
+
+  recorder.start();
+  buzz(20);
+  el('capture').classList.add('rolling');
+  el('shutter').disabled = true;
+  el('captureHint').textContent = 'Stopt vanzelf';
+
+  const run = el('shutterRun');
+  const big = el('bigCount');
+  const started = performance.now();
+  let lastWhole = null;
+
+  const frame = (now) => {
+    const elapsed = now - started;
+    const progress = Math.min(elapsed / durationMs, 1);
+    run.style.strokeDashoffset = String(RING * (1 - progress));
+
+    const whole = Math.max(0, Math.ceil((durationMs - elapsed) / 1000));
+    if (whole !== lastWhole) {
+      lastWhole = whole;
+      big.textContent = whole > 0 ? String(whole) : '';
+      if (whole > 0) buzz(8);
+    }
+    if (progress < 1 && recorder?.state === 'recording') requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+
+  setTimeout(() => { if (recorder?.state === 'recording') recorder.stop(); }, durationMs);
+  // Failsafe: if stop() is ignored, killing the tracks ends the take anyway
+  // rather than leaving the camera running.
+  setTimeout(() => {
+    if (recorder?.state === 'recording') {
+      console.warn('recorder ignored stop(); releasing the camera');
+      releaseCamera();
+      closeCapture();
+    }
+  }, durationMs + 1500);
+}
+
+el('shutter').onclick = rollTake;
+
+el('flipBtn').onclick = async () => {
+  if (recorder) return; // never mid-take
+  facing = facing === 'environment' ? 'user' : 'environment';
+  releaseCamera();
+  await openCamera();
+};
+
+el('captureCancel').onclick = () => {
+  if (recorder?.state === 'recording') {
+    recorder.ondataavailable = null;
+    recorder.onstop = null;
+    try { recorder.stop(); } catch { /* already stopping */ }
+    recorder = null;
+  }
+  closeCapture();
+};
+
+el('deniedClose').onclick = closeCapture;
+el('useSystemCamera').onclick = () => {
+  closeCapture();
+  el('fileCapture').click();
+};
+
+el('recBtn').onclick = async () => {
+  if (!group) return;
+
+  // Recording inside the app needs a secure context, which is why the server
+  // serves https. Without one the viewfinder cannot open at all, and the panel
+  // inside it explains that rather than silently launching another app.
+  if (!window.isSecureContext) {
+    useGetUserMedia = false;
+    el('capture').classList.add('open');
+    el('deniedWhy').textContent =
+      'Deze pagina draait niet over https, en dan geeft je telefoon geen enkele webpagina toegang tot de camera.';
+    el('denied').classList.add('open');
+    renderMode();
+    return;
+  }
+
+  await openCamera();
+};
+
+/** Say plainly which recorder is in play; the difference is the auto-stop. */
+function renderMode() {
+  if (!group) return;
+  const node = el('recMode');
+  if (useGetUserMedia === true) {
+    node.textContent = `Opnemen gebeurt in de app zelf en stopt vanzelf na ${group.clipSeconds}s.`;
+  } else if (useGetUserMedia === false) {
+    node.textContent = group.exactLengths
+      ? `Je eigen camera-app neemt op — die stopt niet vanzelf, maar de clip wordt op ${group.clipSeconds}s geknipt.`
+      : 'Je eigen camera-app neemt op en stopt niet vanzelf.';
+  } else {
+    node.textContent = '';
+  }
+}
+
+el('fileCapture').addEventListener('change', async (event) => {
+  const file = event.target.files?.[0];
+  event.target.value = '';
+  if (file) await sendClip(file);
+});
+
+el('shareBtn').onclick = async () => {
+  const url = `${location.origin}/#/g/${group.code}`;
+  const text = `Film mee aan "${group.title}": ${url}`;
+  if (navigator.share) {
+    try { await navigator.share({ title: group.title, text, url }); return; } catch { /* cancelled */ }
+  }
+  try { await navigator.clipboard.writeText(url); toast('Link gekopieerd'); }
+  catch { prompt('Kopieer deze link:', url); }
+};
+
+// --- playback ---------------------------------------------------------------
+//
+// Two players overlap rather than take turns. The next clip starts playing
+// underneath while the current one is still on screen, and for the length of
+// the dissolve both picture and sound are mixed frame by frame. A hard swap is
+// what made it feel like a slideshow; this is what makes it feel like a film.
+const player = {
+  items: [], index: 0, slot: 0, raf: null, timer: null, running: false,
+  videos: [el('videoA'), el('videoB')],
+};
+
+const clearTimers = () => {
+  if (player.timer) { clearTimeout(player.timer); player.timer = null; }
+  if (player.raf) { cancelAnimationFrame(player.raf); player.raf = null; }
+};
+
+const fadeMs = () =>
+  Math.min(group?.crossfadeMs ?? FALLBACK_CROSSFADE_MS,
+           Math.floor((player.items[player.index]?.durationMs ?? 3000) * 0.25));
+
+function paint() {
+  [...el('progress').children].forEach((bar, i) => bar.classList.toggle('done', i <= player.index));
+}
+
+function prime(slot, index) {
+  const item = player.items[index];
+  if (!item) return null;
+  const video = player.videos[slot];
+  const url = mediaUrl(item);
+  if (!video.src.endsWith(url)) { video.src = url; video.load(); }
+  return video;
+}
+
+function playFrom(video) {
+  video.currentTime = 0;
+  video.muted = false;
+  video.volume = 1;
+  video.play().catch(() => {
+    // Autoplay with sound can be refused; muted playback beats a frozen frame.
+    video.muted = true;
+    void video.play();
+  });
+}
+
+function dissolve(fromVideo, toVideo, duration, done) {
+  const started = performance.now();
+  const step = (now) => {
+    const t = Math.min((now - started) / duration, 1);
+    if (fromVideo) {
+      fromVideo.style.opacity = String(1 - t);
+      if (!fromVideo.muted) fromVideo.volume = Math.max(0, 1 - t);
+    }
+    toVideo.style.opacity = String(t);
+    if (!toVideo.muted) toVideo.volume = Math.min(1, t);
+    if (t < 1) player.raf = requestAnimationFrame(step);
+    else {
+      player.raf = null;
+      if (fromVideo) { fromVideo.pause(); fromVideo.style.opacity = '0'; }
+      done?.();
+    }
+  };
+  player.raf = requestAnimationFrame(step);
+}
+
+function showItem(previousVideo) {
+  clearTimers();
+  paint();
+
+  const item = player.items[player.index];
+  if (!item) return closePlayer();
+
+  const video = prime(player.slot, player.index);
+  if (!video) return closePlayer();
+  playFrom(video);
+
+  const fade = previousVideo ? fadeMs() : 0;
+  if (fade > 0) dissolve(previousVideo, video, fade);
+  else { video.style.opacity = '1'; if (previousVideo) previousVideo.style.opacity = '0'; }
+
+  // Warm the other slot so the next dissolve has real frames to blend.
+  prime(player.slot === 0 ? 1 : 0, player.index + 1);
+
+  // Begin the next clip early enough that the overlap covers the seam.
+  const lead = player.index + 1 < player.items.length ? fadeMs() : 0;
+  player.timer = setTimeout(advance, Math.max(200, item.durationMs - lead));
+}
+
+function advance() {
+  clearTimers();
+  if (!player.running) return;
+  if (player.index + 1 >= player.items.length) return closePlayer();
+
+  const outgoing = player.videos[player.slot];
+  player.index += 1;
+  player.slot = player.slot === 0 ? 1 : 0;
+  showItem(outgoing);
+}
+
+el('playBtn').onclick = () => {
+  if (!group?.clips.length) return;
+  player.items = group.clips;
+  player.index = 0;
+  player.slot = 0;
+  player.running = true;
+  player.videos.forEach((v) => { v.style.opacity = '0'; v.pause(); });
+  el('progress').replaceChildren(...group.clips.map(() => document.createElement('i')));
+  el('player').classList.add('open');
+  showItem(null);
+};
+
+function closePlayer() {
+  player.running = false;
+  clearTimers();
+  player.videos.forEach((v) => { v.pause(); v.style.opacity = '0'; });
+  el('player').classList.remove('open');
+}
+el('playerClose').onclick = closePlayer;
+
+// --- routing ----------------------------------------------------------------
+function route() {
+  if (!store.name) {
+    el('nameInput').value = '';
+    show('nameView');
+    return;
+  }
+  const match = location.hash.match(/^#\/g\/([A-Za-z0-9]{6})$/);
+  if (match) {
+    void openGroup(match[1].toUpperCase());
+  } else {
+    if (stream) { stream.close(); stream = null; }
+    group = null;
+    renderLengths();
+    show('lobbyView');
+  }
+}
+
+window.addEventListener('hashchange', route);
+route();
+</script>
+</body>
+</html>
