@@ -2,14 +2,16 @@
   "name": "mosaic",
   "version": "0.1.0",
   "private": true,
-  "description": "Shared 1-second video albums for a group around one event.",
+  "description": "One shared film a group films together.",
   "workspaces": [
     "packages/*",
     "apps/*"
   ],
   "scripts": {
-    "test": "npm run test --workspace @mosaic/montage && npm run test:db",
+    "lan": "node apps/lan/server.mjs",
+    "test": "npm run test --workspace @mosaic/montage && npm run test:db && npm run test:lan",
     "test:db": "./supabase/tests/run.sh",
+    "test:lan": "./apps/lan/test.sh",
     "check": "node scripts/check.mjs",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },

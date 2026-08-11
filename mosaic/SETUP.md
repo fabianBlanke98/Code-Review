@@ -7,6 +7,10 @@ Nothing here can be done for you: every step creates something under your own
 account. Three of them want a payment card on file (Cloudflare, Fly, and Apple
 if you are on iPhone), even where the usage itself is free.
 
+**Do not start here.** Run `npm run lan` first and open the printed URL on two
+phones. That is the same product on your own wifi, in one command, and it will
+tell you whether any of the below is worth doing.
+
 ---
 
 ## 0. Before you spend anything

@@ -7,14 +7,32 @@ aftermovie everybody helped shoot.
 
 Codename only. "Glimpse" is an existing iOS app; do not ship under that name.
 
+## Try it on a phone in one minute
+
+Before any of the cloud setup, there is a version that runs on your own laptop
+and serves the phones on your wifi:
+
+```bash
+npm run lan
+```
+
+It prints a URL like `http://192.168.1.24:8787`. Open that on every phone on the
+same network — make a group, share the code, and everyone's clips land in the
+same film, live. No accounts, no payment card, no app store, no internet.
+
+That is the whole product loop, and it is the fastest way to find out whether
+your friends will actually film anything. The cloud stack in the rest of this
+repository is what makes it work when they are not on your wifi.
+
 ```
 mosaic/
 ├── supabase/
 │   ├── migrations/0001_init.sql   schema, RLS policies, RPCs, job queue
 │   ├── functions/                 edge functions (presigned R2 upload + playback URLs)
 │   └── tests/                     RLS suite + a throwaway-cluster runner
-├── packages/montage/              the ordering algorithm, pure and shared
+├── packages/montage/              the ordering rule, pure and shared
 └── apps/
+    ├── lan/                       the whole thing on your own wifi, zero dependencies
     ├── worker/                    Node + ffmpeg: normalize on ingest, concat on export
     └── mobile/                    Expo (React Native) client
 ```
@@ -30,12 +48,19 @@ Be precise about this before trusting any of it.
 | `./supabase/tests/run.sh` | 53 assertions against a real Postgres 16 cluster |
 | `npm test --workspace @mosaic/montage` | 16 unit tests |
 | `npx tsc --noEmit` in `packages/montage` | clean |
+| `./apps/lan/test.sh` | 16 end-to-end checks against the running LAN server |
 
 **Written but never executed:** the ffmpeg worker (no ffmpeg or Docker in the
 build environment) and the Expo client (no simulator, no Supabase project, no
 R2 bucket). Both are complete and internally consistent, but treat the first
 run as a debugging session, not a smoke test. The flag choices in
 `apps/worker/src/ffmpeg.ts` in particular deserve a real clip to argue with.
+
+The LAN server's API is covered end to end — group creation, append order,
+server-assigned position, media round-trip, replace and delete authorization,
+and a live push arriving at a second viewer. Its one-MP4 export shells out to
+ffmpeg and could not be exercised here; without ffmpeg it answers 501 rather
+than failing, which *is* tested.
 
 ## Running the database tests
 
@@ -110,13 +135,14 @@ trip — which is the whole point — the two orders are the same.
 sequence to the worker, so the render is exactly the film people watched, a
 repeat export is free, and adding one clip invalidates it immediately.
 
-## Setup
+## Setup for the real thing
 
 [SETUP.md](SETUP.md) is the ordered runbook: six steps, each with a checkpoint.
+Do it when `npm run lan` has told you the idea is worth the accounts.
 
 ```bash
 npm install
-npm test        # 16 unit tests + 53 database assertions, no accounts needed
+npm test        # 16 unit + 53 database + 16 LAN checks, no accounts needed
 npm run check   # preflight against whatever you have deployed so far
 ```
 
@@ -134,15 +160,17 @@ for a US transfer.
 ## Deliberately not built
 
 Personal year timeline, music, filters, text overlays, comments and reactions,
-reordering, favourites, per-person cuts, target lengths, day cards, browser
-recording, paywall, public feed, offline mode.
+reordering, favourites, per-person cuts, target lengths, day cards, paywall,
+public feed, offline mode.
 
-The one worth reconsidering first is **browser recording**: every competitor
-requires all eight people in the group to install an app, which is why their
-shared albums sit empty. A link that opens and records in the browser is the
-cheapest thing that could change the fill rate, and the API is already shaped
-for it — `peek_invite` runs for the anonymous role precisely so a join screen
-can work before there is an account.
+**Browser recording is the exception, and `apps/lan` is the argument for it.**
+Every competitor requires all eight people in a group to install an app, which
+is why their shared albums sit empty. On the LAN build nobody installs anything
+— a link, a name, and you are filming — and that is the single cheapest change
+to the fill rate available. The cloud API is already shaped for it:
+`peek_invite` runs for the anonymous role precisely so a join screen can work
+before there is an account. Promoting the LAN client to a hosted web client
+against Supabase is a smaller job than it looks.
 
 ## Before writing more code
 

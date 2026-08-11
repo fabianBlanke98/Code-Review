@@ -1,0 +1,11 @@
+{
+  "name": "@mosaic/lan",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Mosaic served from your own laptop, for testing the group part before any cloud accounts exist.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "./test.sh"
+  }
+}

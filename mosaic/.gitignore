@@ -9,3 +9,6 @@ dist/
 package-lock.json
 packages/*/package-lock.json
 apps/*/package-lock.json
+
+# Recordings made by the LAN server stay on your own machine.
+apps/lan/.lan-data/

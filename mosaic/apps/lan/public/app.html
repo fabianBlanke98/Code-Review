@@ -1,0 +1,650 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0C0F15">
+<title>Mosaic</title>
+<style>
+  :root {
+    --ground:#EFF1F4; --surface:#FFFFFF; --surface-alt:#E4E8ED; --ink:#10131A;
+    --ink-soft:#4A5563; --ink-faint:#8A94A2; --rule:#D3D9E0; --amber:#B8701C;
+    --amber-soft:#F2E3D0;
+    --ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground:#0C0F15; --surface:#151A22; --surface-alt:#1E242E; --ink:#EDF0F4;
+      --ink-soft:#A3AEBC; --ink-faint:#6B7684; --rule:#262E39; --amber:#E8963A;
+      --amber-soft:#33261A;
+    }
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body {
+    margin:0; background:var(--ground); color:var(--ink); font-family:var(--ui);
+    font-size:15px; line-height:1.45; -webkit-font-smoothing:antialiased;
+  }
+  .shell { max-width:540px; margin:0 auto; padding:0 16px 140px; }
+  .hidden { display:none !important; }
+
+  header { padding:26px 0 4px; }
+  .eyebrow {
+    font-family:var(--mono); font-size:11px; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--ink-faint);
+  }
+  h1 { font-size:29px; line-height:1.12; letter-spacing:-.02em; margin:6px 0 0; }
+  h2 { font-size:20px; margin:0 0 6px; letter-spacing:-.01em; }
+  p { margin:0 0 12px; }
+  .lede { color:var(--ink-soft); }
+
+  .runtime {
+    font-family:var(--mono); font-size:50px; line-height:1; letter-spacing:-.03em;
+    font-variant-numeric:tabular-nums; margin-top:18px;
+  }
+  .runtime small { font-size:19px; color:var(--ink-faint); letter-spacing:0; }
+  .sub { color:var(--ink-soft); font-size:14px; margin-top:6px; }
+
+  section { margin-top:24px; }
+  .label {
+    font-family:var(--mono); font-size:11px; letter-spacing:.12em;
+    text-transform:uppercase; color:var(--ink-faint); display:block; margin-bottom:9px;
+  }
+
+  input[type=text] {
+    width:100%; font:inherit; font-size:17px; padding:14px;
+    border:1px solid var(--rule); border-radius:12px;
+    background:var(--surface); color:var(--ink);
+  }
+  input[type=text]:focus-visible { outline:2px solid var(--amber); outline-offset:1px; }
+
+  .lengths { display:flex; gap:8px; }
+  .len {
+    flex:1; font:inherit; font-family:var(--mono); font-size:15px; font-weight:600;
+    padding:13px 0; border-radius:10px; border:1px solid var(--rule);
+    background:var(--surface); color:var(--ink-soft); cursor:pointer;
+  }
+  .len[aria-pressed=true] { background:var(--ink); border-color:var(--ink); color:var(--ground); }
+
+  .btn {
+    font:inherit; font-weight:600; padding:15px 22px; border-radius:12px;
+    border:1px solid var(--rule); background:var(--surface); color:var(--ink);
+    cursor:pointer; width:100%;
+  }
+  .btn.primary { background:var(--ink); color:var(--ground); border-color:var(--ink); }
+  .btn:disabled { opacity:.45; }
+  .btn + .btn { margin-top:10px; }
+
+  .code {
+    font-family:var(--mono); font-size:30px; letter-spacing:.22em; font-weight:700;
+    text-align:center; padding:16px; border-radius:12px;
+    background:var(--amber-soft); color:var(--amber); margin:4px 0 12px;
+  }
+
+  .reel { display:flex; flex-direction:column; gap:6px; margin-top:10px; }
+  .shot {
+    display:grid; grid-template-columns:28px 44px 1fr auto; gap:12px; align-items:center;
+    background:var(--surface); border:1px solid var(--rule); border-radius:10px; padding:8px 12px;
+  }
+  .n {
+    font-family:var(--mono); font-size:13px; font-variant-numeric:tabular-nums;
+    color:var(--ink-faint); text-align:right;
+  }
+  .shot video {
+    width:44px; height:78px; object-fit:cover; border-radius:5px;
+    background:var(--surface-alt); display:block;
+  }
+  .who { font-weight:600; font-size:14px; }
+  .when { font-size:12px; color:var(--ink-faint); margin-top:2px; }
+  .shot-actions { display:flex; gap:6px; }
+  .act {
+    font:inherit; font-size:12px; font-weight:600; padding:0 10px; height:32px;
+    display:grid; place-items:center; border-radius:8px; border:1px solid var(--rule);
+    background:var(--surface); color:var(--ink-soft); cursor:pointer; white-space:nowrap;
+  }
+  .act.kill { width:32px; padding:0; font-size:16px; color:var(--ink-faint); }
+  .shot.mine { border-color:var(--amber); }
+  .shot.replacing { background:var(--amber-soft); }
+
+  .empty {
+    border:1px dashed var(--rule); border-radius:12px; padding:28px 22px;
+    text-align:center; color:var(--ink-soft);
+  }
+  .empty strong { display:block; color:var(--ink); font-size:16px; margin-bottom:6px; }
+
+  .bar {
+    position:fixed; left:0; right:0; bottom:0;
+    padding:14px 16px calc(14px + env(safe-area-inset-bottom));
+    background:var(--ground); border-top:1px solid var(--rule);
+    display:flex; gap:12px; align-items:center; justify-content:center;
+  }
+  .bar .btn { width:auto; padding:14px 18px; border-radius:999px; }
+  .rec {
+    position:relative; width:72px; height:72px; border-radius:50%; border:none;
+    background:var(--amber); cursor:pointer; display:grid; place-items:center; flex:none;
+  }
+  .rec:disabled { opacity:.5; }
+  .rec span {
+    font-family:var(--mono); font-size:15px; font-weight:700;
+    font-variant-numeric:tabular-nums; color:#14100A;
+  }
+  .rec .arc { position:absolute; inset:-7px; }
+  .rec .arc circle {
+    fill:none; stroke:var(--amber); stroke-width:3;
+    transform:rotate(-90deg); transform-origin:50% 50%;
+  }
+
+  .player { position:fixed; inset:0; background:#000; display:none; z-index:40; }
+  .player.open { display:block; }
+  .player video {
+    position:absolute; inset:0; width:100%; height:100%; object-fit:cover;
+    opacity:0; transition:opacity .08s linear;
+  }
+  .player video.live { opacity:1; }
+  .progress {
+    position:absolute; top:14px; left:14px; right:14px; display:flex; gap:3px;
+    z-index:2; pointer-events:none;
+  }
+  .progress i { flex:1; height:3px; background:rgba(255,255,255,.28); border-radius:2px; }
+  .progress i.done { background:#fff; }
+  .player-close {
+    position:absolute; top:40px; right:16px; z-index:3; font:inherit; font-size:14px;
+    font-weight:600; color:#fff; background:rgba(0,0,0,.45); border:none;
+    border-radius:999px; padding:9px 16px;
+  }
+
+  .note {
+    margin-top:26px; padding:14px 16px; border-left:2px solid var(--amber);
+    background:var(--surface); border-radius:0 8px 8px 0;
+    font-size:13px; line-height:1.55; color:var(--ink-soft);
+  }
+  .toast {
+    position:fixed; left:50%; bottom:112px; transform:translateX(-50%);
+    background:var(--ink); color:var(--ground); padding:10px 16px; border-radius:999px;
+    font-size:13px; z-index:50; opacity:0; pointer-events:none; transition:opacity .2s;
+    max-width:90vw; text-align:center;
+  }
+  .toast.show { opacity:1; }
+  @media (prefers-reduced-motion: reduce) { * { transition-duration:.01ms !important; } }
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <!-- who are you ------------------------------------------------------- -->
+  <div id="nameView" class="hidden">
+    <header><span class="eyebrow">Mosaic</span><h1>Hoe heet je?</h1></header>
+    <p class="lede">Staat straks bij je opnames, zodat de groep ziet wie wat filmde.</p>
+    <section>
+      <input type="text" id="nameInput" placeholder="Fabian" autocomplete="given-name" enterkeyhint="go">
+      <div style="margin-top:12px"><button class="btn primary" id="nameSave">Verder</button></div>
+    </section>
+  </div>
+
+  <!-- lobby -------------------------------------------------------------- -->
+  <div id="lobbyView" class="hidden">
+    <header><span class="eyebrow">Mosaic</span><h1>Eén film, samen</h1></header>
+    <p class="lede">
+      Maak een groep, deel de code, en alles wat iedereen opneemt komt achter
+      elkaar in dezelfde film.
+    </p>
+
+    <section>
+      <span class="label">Nieuwe groep</span>
+      <input type="text" id="newTitle" placeholder="Kreta 2026" maxlength="80">
+      <div style="margin-top:14px">
+        <span class="label">Hoe lang duurt één opname?</span>
+        <div class="lengths" id="lengths"></div>
+      </div>
+      <div style="margin-top:14px"><button class="btn primary" id="createBtn">Groep aanmaken</button></div>
+    </section>
+
+    <section>
+      <span class="label">Of doe mee</span>
+      <input type="text" id="joinCode" placeholder="Groepscode" maxlength="6"
+             autocapitalize="characters" autocomplete="off" enterkeyhint="go"
+             style="text-transform:uppercase; font-family:var(--mono); letter-spacing:.2em">
+      <div style="margin-top:12px"><button class="btn" id="joinBtn">Meedoen</button></div>
+    </section>
+  </div>
+
+  <!-- the film ------------------------------------------------------------ -->
+  <div id="filmView" class="hidden">
+    <header>
+      <span class="eyebrow" id="filmEyebrow">Onze film</span>
+      <h1 id="filmTitle">…</h1>
+      <div class="runtime" id="runtime">0<small>s</small></div>
+      <div class="sub" id="filmSub">Nog geen opnames</div>
+    </header>
+
+    <section>
+      <span class="label">Nodig de rest uit</span>
+      <div class="code" id="groupCode">------</div>
+      <button class="btn" id="shareBtn">Deel de link</button>
+    </section>
+
+    <section>
+      <span class="label">De film</span>
+      <div class="reel" id="reel"></div>
+      <div class="empty" id="empty">
+        <strong>Nog leeg</strong>
+        Neem de eerste op. Alles wat daarna wordt gefilmd komt er achteraan bij.
+      </div>
+    </section>
+
+    <div class="note" id="exportNote"></div>
+  </div>
+</div>
+
+<div class="bar hidden" id="bar">
+  <button class="btn" id="playBtn" disabled>Bekijk film</button>
+  <button class="rec" id="recBtn" aria-label="Opnemen">
+    <svg class="arc" viewBox="0 0 100 100" aria-hidden="true">
+      <circle id="arc" cx="50" cy="50" r="47" stroke-dasharray="295.3" stroke-dashoffset="295.3"></circle>
+    </svg>
+    <span id="recLabel">3s</span>
+  </button>
+  <button class="btn" id="leaveBtn">Groepen</button>
+</div>
+
+<input type="file" accept="video/*" capture="environment" id="fileCapture" hidden>
+
+<div class="player" id="player">
+  <video id="videoA" playsinline preload="auto"></video>
+  <video id="videoB" playsinline preload="auto"></video>
+  <div class="progress" id="progress"></div>
+  <button class="player-close" id="playerClose">Sluiten</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="module">
+const el = (id) => document.getElementById(id);
+const CLIP_SECONDS_OPTIONS = [1, 2, 3, 4, 5];
+const ARC = 295.3;
+
+const store = {
+  get name() { return localStorage.getItem('mosaic-name') ?? ''; },
+  set name(v) { localStorage.setItem('mosaic-name', v); },
+};
+
+let group = null;        // the group we are looking at
+let stream = null;       // EventSource
+let newClipSeconds = 3;
+let replacing = null;
+
+function toast(message) {
+  const node = el('toast');
+  node.textContent = message;
+  node.classList.add('show');
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => node.classList.remove('show'), 3000);
+}
+
+const show = (view) => {
+  for (const id of ['nameView', 'lobbyView', 'filmView']) {
+    el(id).classList.toggle('hidden', id !== view);
+  }
+  el('bar').classList.toggle('hidden', view !== 'filmView');
+};
+
+async function api(path, options = {}) {
+  const response = await fetch(path, options);
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error ?? `http_${response.status}`);
+  }
+  return response.json();
+}
+
+// --- lobby ------------------------------------------------------------------
+function renderLengths() {
+  el('lengths').replaceChildren(...CLIP_SECONDS_OPTIONS.map((seconds) => {
+    const button = document.createElement('button');
+    button.className = 'len';
+    button.textContent = `${seconds}s`;
+    button.setAttribute('aria-pressed', String(newClipSeconds === seconds));
+    button.onclick = () => { newClipSeconds = seconds; renderLengths(); };
+    return button;
+  }));
+}
+
+el('createBtn').onclick = async () => {
+  try {
+    const created = await api('/api/groups', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: el('newTitle').value, clipSeconds: newClipSeconds }),
+    });
+    location.hash = `#/g/${created.code}`;
+  } catch {
+    toast('Aanmaken mislukt — draait de server nog?');
+  }
+};
+
+const joinTyped = () => {
+  const code = el('joinCode').value.trim().toUpperCase();
+  if (code.length === 6) location.hash = `#/g/${code}`;
+  else toast('Een groepscode is 6 tekens');
+};
+el('joinBtn').onclick = joinTyped;
+el('joinCode').addEventListener('keydown', (e) => { if (e.key === 'Enter') joinTyped(); });
+
+el('nameSave').onclick = () => {
+  const name = el('nameInput').value.trim();
+  if (!name) return toast('Vul even een naam in');
+  store.name = name;
+  route();
+};
+el('nameInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') el('nameSave').click(); });
+
+el('leaveBtn').onclick = () => { location.hash = ''; };
+
+// --- the film ---------------------------------------------------------------
+const mediaUrl = (clip) =>
+  `/api/groups/${group.code}/clips/${clip.id}/media?r=${clip.revision}`;
+
+function renderFilm() {
+  const clips = group.clips;
+  const seconds = Math.round(clips.reduce((sum, c) => sum + c.durationMs, 0) / 1000);
+  const people = new Set(clips.map((c) => c.author)).size;
+
+  el('filmTitle').textContent = group.title;
+  el('groupCode').textContent = group.code;
+  el('recLabel').textContent = `${group.clipSeconds}s`;
+  el('runtime').innerHTML = seconds < 60
+    ? `${seconds}<small>s</small>`
+    : `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+  el('filmSub').textContent = clips.length
+    ? `${clips.length} ${clips.length === 1 ? 'opname' : 'opnames'} van ${people} ${people === 1 ? 'persoon' : 'mensen'} · ${group.clipSeconds}s per stuk`
+    : 'Nog geen opnames';
+
+  el('empty').classList.toggle('hidden', clips.length > 0);
+  el('playBtn').disabled = clips.length === 0;
+
+  el('exportNote').innerHTML = group.canExport
+    ? `<strong>De aftermovie.</strong> <a href="/api/groups/${group.code}/film" download="${group.title}.mp4">Download alles als één MP4</a> — de laptop plakt de opnames aan elkaar. Even geduld bij veel clips.`
+    : '<strong>Geen ffmpeg op de laptop.</strong> Afspelen werkt, maar één MP4 maken lukt niet. Installeer ffmpeg en start de server opnieuw.';
+
+  el('reel').replaceChildren(...clips.map((clip, index) => {
+    const mine = clip.author === store.name;
+    const row = document.createElement('div');
+    row.className = `shot${mine ? ' mine' : ''}${replacing === clip.id ? ' replacing' : ''}`;
+
+    const n = document.createElement('div');
+    n.className = 'n';
+    n.textContent = String(index + 1);
+
+    const preview = document.createElement('video');
+    preview.muted = true;
+    preview.playsInline = true;
+    preview.preload = 'metadata';
+    preview.src = `${mediaUrl(clip)}#t=0.1`;
+
+    const meta = document.createElement('div');
+    const who = document.createElement('div');
+    who.className = 'who';
+    who.textContent = clip.author;
+    const when = document.createElement('div');
+    when.className = 'when';
+    when.textContent = clip.revision > 1
+      ? `${clip.revision - 1}× opnieuw opgenomen`
+      : `${(clip.durationMs / 1000).toFixed(1)}s`;
+    meta.append(who, when);
+
+    const actions = document.createElement('div');
+    actions.className = 'shot-actions';
+
+    // Only your own clips: replacing somebody else's would be putting words in
+    // their mouth, which is a different thing from deleting your own take.
+    if (mine) {
+      const again = document.createElement('button');
+      again.className = 'act';
+      again.textContent = 'Opnieuw';
+      again.onclick = () => {
+        replacing = clip.id;
+        renderFilm();
+        toast('Tik op opnemen — deze plek wordt overschreven');
+      };
+
+      const kill = document.createElement('button');
+      kill.className = 'act kill';
+      kill.textContent = '×';
+      kill.setAttribute('aria-label', 'Verwijderen');
+      kill.onclick = async () => {
+        if (!confirm('Deze opname verwijderen?')) return;
+        try {
+          await api(`/api/groups/${group.code}/clips/${clip.id}?author=${encodeURIComponent(store.name)}`,
+                    { method: 'DELETE' });
+          if (replacing === clip.id) replacing = null;
+        } catch { toast('Verwijderen mislukt'); }
+      };
+
+      actions.append(again, kill);
+    }
+
+    row.append(n, preview, meta, actions);
+    return row;
+  }));
+}
+
+async function openGroup(code) {
+  if (stream) { stream.close(); stream = null; }
+  try {
+    group = await api(`/api/groups/${code}`);
+  } catch {
+    toast('Die groep bestaat niet');
+    location.hash = '';
+    return;
+  }
+
+  show('filmView');
+  renderFilm();
+
+  // Live: everyone sees the film grow while they are standing next to each other.
+  stream = new EventSource(`/api/groups/${code}/events`);
+  stream.onmessage = (event) => {
+    const next = JSON.parse(event.data);
+    group = { ...group, ...next };
+    renderFilm();
+  };
+  stream.onerror = () => { /* EventSource reconnects on its own */ };
+}
+
+// --- recording --------------------------------------------------------------
+let recorder = null;
+let liveStream = null;
+let useGetUserMedia = null;
+
+function runArc(durationMs) {
+  const arc = el('arc');
+  const started = performance.now();
+  const step = (now) => {
+    const progress = Math.min((now - started) / durationMs, 1);
+    arc.style.strokeDashoffset = String(ARC * (1 - progress));
+    if (progress < 1 && recorder?.state === 'recording') requestAnimationFrame(step);
+    else arc.style.strokeDashoffset = String(ARC);
+  };
+  requestAnimationFrame(step);
+}
+
+async function sendClip(blob) {
+  const durationMs = group.clipSeconds * 1000;
+  const author = encodeURIComponent(store.name);
+  const target = replacing
+    ? `/api/groups/${group.code}/clips/${replacing}/replace?author=${author}`
+    : `/api/groups/${group.code}/clips?author=${author}&durationMs=${durationMs}`;
+
+  const wasReplacing = replacing;
+  replacing = null;
+
+  try {
+    const response = await fetch(target, {
+      method: 'POST',
+      headers: { 'content-type': blob.type || 'video/mp4' },
+      body: blob,
+    });
+    if (!response.ok) throw new Error(String(response.status));
+    toast(wasReplacing ? 'Vervangen — hij houdt zijn plek' : 'Toegevoegd aan de film');
+  } catch {
+    toast('Uploaden mislukt — nog op hetzelfde wifi?');
+  }
+}
+
+async function recordLive() {
+  const durationMs = group.clipSeconds * 1000;
+  if (!liveStream) {
+    liveStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 720 }, height: { ideal: 1280 } },
+      audio: true,
+    });
+  }
+
+  const chunks = [];
+  recorder = new MediaRecorder(liveStream);
+  recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+  recorder.onstop = async () => {
+    el('recBtn').disabled = false;
+    el('recLabel').textContent = `${group.clipSeconds}s`;
+    await sendClip(new Blob(chunks, { type: recorder.mimeType || 'video/webm' }));
+  };
+
+  recorder.start();
+  el('recBtn').disabled = true;
+  runArc(durationMs);
+
+  const end = Date.now() + durationMs;
+  const tick = () => {
+    const left = Math.ceil((end - Date.now()) / 1000);
+    if (left > 0 && recorder?.state === 'recording') {
+      el('recLabel').textContent = String(left);
+      setTimeout(tick, 200);
+    }
+  };
+  tick();
+
+  // One tap, a fixed length, nothing to hold and nothing to trim.
+  setTimeout(() => { if (recorder?.state === 'recording') recorder.stop(); }, durationMs);
+}
+
+el('recBtn').onclick = async () => {
+  if (!group) return;
+  // getUserMedia needs a secure context. Over plain http on a LAN address that
+  // is not granted, so the phone's own camera app takes over instead.
+  if (useGetUserMedia === false || !window.isSecureContext) {
+    useGetUserMedia = false;
+    return el('fileCapture').click();
+  }
+  try {
+    await recordLive();
+    useGetUserMedia = true;
+  } catch {
+    useGetUserMedia = false;
+    el('recBtn').disabled = false;
+    el('fileCapture').click();
+  }
+};
+
+el('fileCapture').addEventListener('change', async (event) => {
+  const file = event.target.files?.[0];
+  event.target.value = '';
+  if (file) await sendClip(file);
+});
+
+el('shareBtn').onclick = async () => {
+  const url = `${location.origin}/#/g/${group.code}`;
+  const text = `Film mee aan "${group.title}": ${url}`;
+  if (navigator.share) {
+    try { await navigator.share({ title: group.title, text, url }); return; } catch { /* cancelled */ }
+  }
+  try { await navigator.clipboard.writeText(url); toast('Link gekopieerd'); }
+  catch { prompt('Kopieer deze link:', url); }
+};
+
+// --- playback: two videos leapfrogging, same trick as the app ---------------
+const player = { items: [], index: 0, slot: 0, timer: null, videos: [el('videoA'), el('videoB')] };
+const clearTimer = () => { if (player.timer) { clearTimeout(player.timer); player.timer = null; } };
+
+function paint() {
+  [...el('progress').children].forEach((bar, i) => bar.classList.toggle('done', i <= player.index));
+}
+
+function preload(slot, index) {
+  const item = player.items[index];
+  if (!item) return;
+  const video = player.videos[slot];
+  video.src = mediaUrl(item);
+  video.load();
+}
+
+function showItem() {
+  clearTimer();
+  paint();
+  const item = player.items[player.index];
+  if (!item) return closePlayer();
+
+  const video = player.videos[player.slot];
+  player.videos.forEach((v) => v.classList.remove('live'));
+  const url = mediaUrl(item);
+  if (!video.src.endsWith(url)) { video.src = url; video.load(); }
+  video.currentTime = 0;
+  video.classList.add('live');
+  video.muted = false;
+  video.play().catch(() => { video.muted = true; video.play().catch(() => advance()); });
+
+  player.timer = setTimeout(advance, item.durationMs + 400);
+  preload(player.slot === 0 ? 1 : 0, player.index + 1);
+}
+
+function advance() {
+  clearTimer();
+  if (player.index + 1 >= player.items.length) return closePlayer();
+  player.index += 1;
+  player.slot = player.slot === 0 ? 1 : 0;
+  showItem();
+}
+
+player.videos.forEach((v) => v.addEventListener('ended', () => {
+  if (v.classList.contains('live')) advance();
+}));
+
+el('playBtn').onclick = () => {
+  if (!group?.clips.length) return;
+  player.items = group.clips;
+  player.index = 0;
+  player.slot = 0;
+  el('progress').replaceChildren(...group.clips.map(() => document.createElement('i')));
+  el('player').classList.add('open');
+  showItem();
+};
+
+function closePlayer() {
+  clearTimer();
+  player.videos.forEach((v) => { v.pause(); v.classList.remove('live'); });
+  el('player').classList.remove('open');
+}
+el('playerClose').onclick = closePlayer;
+
+// --- routing ----------------------------------------------------------------
+function route() {
+  if (!store.name) {
+    el('nameInput').value = '';
+    show('nameView');
+    return;
+  }
+  const match = location.hash.match(/^#\/g\/([A-Za-z0-9]{6})$/);
+  if (match) {
+    void openGroup(match[1].toUpperCase());
+  } else {
+    if (stream) { stream.close(); stream = null; }
+    group = null;
+    renderLengths();
+    show('lobbyView');
+  }
+}
+
+window.addEventListener('hashchange', route);
+route();
+</script>
+</body>
+</html>
