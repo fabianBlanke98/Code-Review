@@ -1,8 +1,9 @@
 # Mosaic
 
-A shared video album where a group collects 1–3 second clips around one event —
-a trip, a party, a season — and the app turns them into one chronological film
-they can export and share.
+One film a group makes together. You create a group, invite people, pick how
+long a single recording lasts (1–5 seconds), and from then on everyone's clips
+land at the end of the same film. At the end of the holiday there is an
+aftermovie everybody helped shoot.
 
 Codename only. "Glimpse" is an existing iOS app; do not ship under that name.
 
@@ -26,8 +27,8 @@ Be precise about this before trusting any of it.
 
 | | |
 |---|---|
-| `./supabase/tests/run.sh` | 44 assertions against a real Postgres 16 cluster |
-| `npm test --workspace @mosaic/montage` | 30 unit tests |
+| `./supabase/tests/run.sh` | 45 assertions against a real Postgres 16 cluster |
+| `npm test --workspace @mosaic/montage` | 15 unit tests |
 | `npx tsc --noEmit` in `packages/montage` | clean |
 
 **Written but never executed:** the ffmpeg worker (no ffmpeg or Docker in the
@@ -71,33 +72,35 @@ export. Getting this backwards makes every scrub cost an encode.
 
 ### 3. Hiding is not deleting
 
-Only a clip's author can delete it. An album admin can *hide* it, which removes
-it from the album and from every montage but leaves both the row and the object
-in R2 untouched — the author still sees it in their own library. No admin
-action can reach another person's media, which keeps the failure mode of a
-group argument at "awkward" rather than "irreversible".
+Only a clip's author can delete it. A group admin can *hide* it, which takes it
+out of the film but leaves both the row and the object in R2 untouched — the
+author still sees it in their own library. No admin action can reach another
+person's media, which keeps the failure mode of a group argument at "awkward"
+rather than "irreversible".
 
-## The montage algorithm
+## How the film is assembled
 
-`packages/montage` is pure and dependency-free — the client and the worker run
-the identical code, so the export can never differ from the preview.
+`packages/montage` is 46 lines, pure and dependency-free — the client and the
+worker run the identical code, so the export can never differ from the preview.
 
-1. Group by **local** day, shifting `captured_at` by the offset at the capture
-   location. A clip shot at 23:30 in Athens stays on the Athens day.
-2. Per day, per person: `quota = max(1, floor(target / (days × people)))`. The
-   `max(1, …)` is a social rule, not a numeric one — everyone who was there
-   appears on every day they were there, however short the film.
-3. Over quota: favourites first, then spread evenly across that day's timeline.
-   Not the first N — that returns breakfast three times and no sunset.
-4. Within a day, split into bursts (gaps under 120s). If one person has three
-   or more clips in a row inside a burst, deal that burst out round-robin.
-   Bursts never mix across a longer gap: reordering the morning into the
-   afternoon would claim people were together when they were not.
-5. One 600ms day card per day, skipped entirely for a single-day album.
+The rule is the whole feature: **every clip lands at the end, in the order
+people added them, and stays there.** No length budget, no selection pass, no
+per-person fairness logic, no grouping by day. Position comes from `sequence`,
+which the database assigns on insert and nothing may change afterwards.
 
-Ordering is deterministic, and `specHash` is a SHA-256 over the *resolved*
-sequence. The client sends that resolved sequence to the worker, so the render
-is the cut the user watched, and re-exporting an unchanged album is free.
+That is a deliberate retreat from a cleverer earlier design. A group film that
+silently drops somebody's clip to hit a target length is worse than a long one,
+and every rule the app applies is a rule the group has to learn. Ordering by
+append rather than by capture time also removes timezones entirely: no clip
+moves because two phones disagreed about the date.
+
+The trade is real and worth knowing: a clip you filmed on Tuesday but upload on
+Friday lands on Friday, at the end. For clips recorded in the app during the
+trip — which is the whole point — the two orders are the same.
+
+`specHash` is a SHA-256 over the resolved sequence. The client sends that
+sequence to the worker, so the render is exactly the film people watched, a
+repeat export is free, and adding one clip invalidates it immediately.
 
 ## Setup
 
@@ -105,7 +108,7 @@ is the cut the user watched, and re-exporting an unchanged album is free.
 
 ```bash
 npm install
-npm test        # 30 unit tests + 44 database assertions, no accounts needed
+npm test        # 15 unit tests + 45 database assertions, no accounts needed
 npm run check   # preflight against whatever you have deployed so far
 ```
 
@@ -123,7 +126,8 @@ for a US transfer.
 ## Deliberately not built
 
 Personal year timeline, music, filters, text overlays, comments and reactions,
-alternative cut recipes, browser recording, paywall, public feed, offline mode.
+reordering, favourites, per-person cuts, target lengths, day cards, browser
+recording, paywall, public feed, offline mode.
 
 The one worth reconsidering first is **browser recording**: every competitor
 requires all eight people in the group to install an app, which is why their

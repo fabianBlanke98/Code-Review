@@ -10,8 +10,9 @@ interface ClipRow {
   id: string;
   album_id: string;
   storage_key: string;
-  captured_at: string;
   status: string;
+  /** The group's chosen clip length; every recording is cut to it. */
+  clip_seconds: number;
 }
 
 export const normalizedKey = (albumId: string, clipId: string): string =>
@@ -24,8 +25,10 @@ export async function normalizeClip(payload: Record<string, unknown>): Promise<v
   const clipId = String(payload.clip_id);
 
   const { rows } = await pool.query<ClipRow>(
-    `select id, album_id, storage_key, captured_at, status
-       from clips where id = $1 and deleted_at is null`,
+    `select c.id, c.album_id, c.storage_key, c.status, a.clip_seconds
+       from clips c
+       join albums a on a.id = c.album_id
+      where c.id = $1 and c.deleted_at is null`,
     [clipId],
   );
   const clip = rows[0];
@@ -41,7 +44,7 @@ export async function normalizeClip(payload: Record<string, unknown>): Promise<v
     await download(clip.storage_key, original);
     const info = await probe(original);
 
-    await normalize(original, normalized, info.hasAudio);
+    await normalize(original, normalized, info.hasAudio, clip.clip_seconds * 1000);
     await thumbnail(normalized, thumb);
 
     const outKey = normalizedKey(clip.album_id, clip.id);
@@ -51,10 +54,8 @@ export async function normalizeClip(payload: Record<string, unknown>): Promise<v
 
     const finalInfo = await probe(normalized);
 
-    // The container's own creation time beats whatever the client reported: it
-    // is written by the recorder, and it is what keeps a Saturday clip uploaded
-    // on Monday on Saturday. The client still owns utc_offset_minutes, which
-    // the file does not carry.
+    // `sequence` is untouched here: the clip's place in the film was decided
+    // when it was added, and normalization finishing late must not move it.
     await pool.query(
       `update clips
           set storage_key = $2,
@@ -62,19 +63,10 @@ export async function normalizeClip(payload: Record<string, unknown>): Promise<v
               duration_ms = $4,
               width = $5,
               height = $6,
-              captured_at = coalesce($7::timestamptz, captured_at),
               status = 'ready',
               failure_reason = null
         where id = $1`,
-      [
-        clip.id,
-        outKey,
-        outThumbKey,
-        finalInfo.durationMs,
-        finalInfo.width,
-        finalInfo.height,
-        info.creationTime,
-      ],
+      [clip.id, outKey, outThumbKey, finalInfo.durationMs, finalInfo.width, finalInfo.height],
     );
 
     // The raw upload has served its purpose. Keeping it doubles storage for no

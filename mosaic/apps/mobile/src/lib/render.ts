@@ -1,4 +1,4 @@
-import { buildMontage, type MontageClip, type MontageSpec } from '@mosaic/montage';
+import { buildMontage, type MontageClip } from '@mosaic/montage';
 
 import { supabase } from './supabase.ts';
 
@@ -10,29 +10,24 @@ export interface RenderRow {
 }
 
 /**
- * Ask the worker for an MP4 of exactly the cut the user just watched.
+ * Ask the worker for one MP4 of the film as it stands.
  *
- * The *resolved* item list travels with the request, not just the knobs. The
- * worker then renders that sequence verbatim instead of recomputing it, so the
- * export can never differ from the preview — and the hash over that sequence is
- * what makes a repeat export free.
+ * The resolved clip list travels with the request, so the worker renders that
+ * sequence verbatim instead of recomputing it — the export can never differ
+ * from the preview. The hash over that sequence is what makes re-exporting an
+ * unchanged film free, and what makes it re-render the moment somebody adds.
  */
 export async function requestRender(
   albumId: string,
   clips: MontageClip[],
-  spec: MontageSpec,
 ): Promise<RenderRow> {
-  const montage = buildMontage(clips, spec);
+  const montage = buildMontage(clips);
 
   const resolved = {
-    targetSeconds: spec.targetSeconds,
-    mode: spec.mode,
-    dayCardMs: spec.dayCardMs,
-    items: montage.items.map((item) =>
-      item.kind === 'clip'
-        ? { kind: 'clip' as const, clipId: item.clip.id, durationMs: item.durationMs }
-        : { kind: 'day_card' as const, day: item.day, durationMs: item.durationMs },
-    ),
+    items: montage.items.map((item) => ({
+      clipId: item.clip.id,
+      durationMs: item.durationMs,
+    })),
   };
 
   const { data, error } = await supabase.rpc('request_render', {
@@ -45,7 +40,7 @@ export async function requestRender(
   return data as RenderRow;
 }
 
-/** Polls until the render finishes. Renders are seconds, not minutes. */
+/** Polls until the render finishes. A concat stream copy is seconds, not minutes. */
 export async function waitForRender(
   renderId: string,
   { timeoutMs = 120_000, intervalMs = 1500 } = {},

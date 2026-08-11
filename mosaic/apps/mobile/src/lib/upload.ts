@@ -1,13 +1,12 @@
 import * as Crypto from 'expo-crypto';
 import * as FileSystem from 'expo-file-system';
 
+import { MAX_CLIP_MS } from '@mosaic/montage';
 import { supabase } from './supabase.ts';
 
 export interface PendingClip {
   albumId: string;
   fileUri: string;
-  /** Capture time from the recorder or the picked asset — never Date.now(). */
-  capturedAt: Date;
   durationMs: number;
   contentType?: string;
 }
@@ -22,9 +21,9 @@ export const rawKeyFor = (albumId: string, clipId: string): string =>
  * The clip id is minted on the device so the storage key is already known at
  * insert time. That matters: `storage_key` is not client-writable (the DB
  * trigger reverts it), so there is no second chance to fill it in after the
- * upload. The row existing before the bytes do is also what lets the author
- * watch their own upload in the grid — RLS shows non-ready clips to their
- * author and to nobody else.
+ * upload. The row also decides the clip's place in the film — the database
+ * assigns `sequence` on insert — which is why the row is created the moment
+ * recording stops, not when the bytes finish arriving.
  */
 export async function uploadClip(pending: PendingClip): Promise<string> {
   const { data: auth } = await supabase.auth.getUser();
@@ -38,10 +37,7 @@ export async function uploadClip(pending: PendingClip): Promise<string> {
     album_id: pending.albumId,
     author_id: auth.user.id,
     storage_key: rawKeyFor(pending.albumId, clipId),
-    captured_at: pending.capturedAt.toISOString(),
-    // Offset at the moment of capture, so the local day survives travel.
-    utc_offset_minutes: -pending.capturedAt.getTimezoneOffset(),
-    duration_ms: Math.min(pending.durationMs, 3000),
+    duration_ms: Math.min(pending.durationMs, MAX_CLIP_MS),
     status: 'uploading',
   });
 
@@ -72,7 +68,7 @@ export async function uploadClip(pending: PendingClip): Promise<string> {
 
     return clipId;
   } catch (error) {
-    // Leave nothing half-born in the grid.
+    // Leave nothing half-born in the film.
     await supabase.rpc('delete_own_clip', { p_clip: clipId });
     throw error;
   }

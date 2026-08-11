@@ -17,7 +17,7 @@ npm install
 npm test
 ```
 
-That runs 30 montage unit tests and 44 database assertions against a throwaway
+That runs 15 montage unit tests and 45 database assertions against a throwaway
 Postgres cluster it boots and deletes itself. No accounts, no cost. If this is
 red, stop — nothing downstream will work.
 
@@ -143,8 +143,8 @@ free queue.
   Program (€99/yr). If you have an Android phone in a drawer, use it for the
   first test.
 
-When it installs, sign in with a magic link, create an album, and record a
-clip. Then:
+When it installs, sign in with a magic link, create a group, pick a clip
+length, and record one clip. Then:
 
 ```bash
 npm run check
@@ -157,16 +157,16 @@ pick it up — step 4.
 
 ## 6. A second phone
 
-This is the only step that tests the actual product. One person with a shared
-album has nothing.
+This is the only step that tests the actual product. A group of one has
+nothing to make a film out of.
 
-Open the album → Uitnodigen → share the link. On the second phone, the link
-opens the join screen *before* asking for an account — that is deliberate, and
-it is the part most worth watching someone else do. Note how long they take and
-where they hesitate.
+Creating a group drops you straight on the invite screen — share that link. On
+the second phone it opens the join screen *before* asking for an account, which
+is deliberate and the part most worth watching someone else do. Note how long
+they take and where they hesitate.
 
-Then check both phones see each other's clips within a few seconds, and export
-the montage from one of them.
+Then have both phones record something and check the film grows on the other
+one within a few seconds, in the order the clips were taken. Export from either.
 
 ---
 
@@ -177,6 +177,7 @@ the montage from one of them.
 | Symptom | Look at |
 |---|---|
 | App reads empty, no errors | RLS with no policies denies everything — check step 1 |
+| Clips appear in the wrong order | `clips_assign_sequence` missing; `npm run check` flags it |
 | Upload fails immediately | `sign-upload` not deployed, or R2 token not scoped to the bucket |
 | Clips stay grey in the grid | Worker not consuming — `fly logs -a mosaic-worker` |
 | Export fails but playback works | A clip escaped normalization; concat needs identical streams |

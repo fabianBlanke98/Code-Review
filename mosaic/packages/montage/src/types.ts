@@ -1,62 +1,36 @@
-/** A clip as far as the montage builder is concerned. */
+/** Clip length choices a group can pick from, in seconds. */
+export const CLIP_SECONDS_OPTIONS = [1, 2, 3, 4, 5] as const;
+
+export type ClipSeconds = (typeof CLIP_SECONDS_OPTIONS)[number];
+
+export const DEFAULT_CLIP_SECONDS: ClipSeconds = 3;
+
+/** Below this a recording is a black frame rather than a moment. */
+export const MIN_CLIP_MS = 400;
+
+export const MAX_CLIP_MS = 5000;
+
+/** A clip as far as the film is concerned. */
 export interface MontageClip {
   id: string;
-  authorId: string;
-  /** Capture time in UTC, ISO-8601. Never the upload time. */
-  capturedAt: string;
-  /** Offset at the capture location, so "which local day" survives travel. */
-  utcOffsetMinutes: number;
-  durationMs: number;
-  isFavorite?: boolean;
-}
-
-export type MontageMode = 'chronological' | 'per_person';
-
-export interface MontageSpec {
   /**
-   * Rough length budget. Clips run ~1s, so this doubles as a clip count.
-   * `null` means "include everything".
+   * Position in the film. Assigned when the clip is added, never recomputed,
+   * so a clip's place in the story does not move once people have seen it.
    */
-  targetSeconds: number | null;
-  mode: MontageMode;
-  /** Length of the inter-day title card. 0 disables cards entirely. */
-  dayCardMs: number;
+  sequence: number;
+  authorId: string;
+  durationMs: number;
 }
 
-export type MontageItem =
-  | {
-      kind: 'day_card';
-      day: string;
-      dayIndex: number;
-      dayCount: number;
-      durationMs: number;
-    }
-  | {
-      kind: 'clip';
-      clip: MontageClip;
-      day: string;
-      durationMs: number;
-    };
+export interface MontageItem {
+  clip: MontageClip;
+  durationMs: number;
+}
 
 export interface Montage {
   items: MontageItem[];
-  days: string[];
   totalDurationMs: number;
-  includedClipIds: string[];
-  /** Clips that exist in the album but did not make this cut. */
-  droppedClipIds: string[];
-  /** Stable identity of this cut; equal input + spec => equal hash. */
+  clipIds: string[];
+  /** Stable identity of this cut; equal clips in equal order => equal hash. */
   specHash: string;
 }
-
-export const DEFAULT_SPEC: MontageSpec = {
-  targetSeconds: 60,
-  mode: 'chronological',
-  dayCardMs: 600,
-};
-
-/** Clips closer together than this belong to the same burst. */
-export const BURST_GAP_MS = 120_000;
-
-/** This many clips in a row from one person triggers the round-robin rescue. */
-export const SAME_AUTHOR_RUN_LIMIT = 3;

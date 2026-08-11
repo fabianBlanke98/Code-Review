@@ -4,41 +4,31 @@ import { Link, useFocusEffect, useRouter } from 'expo-router';
 
 import { supabase } from '../src/lib/supabase.ts';
 
-interface AlbumRow {
+interface GroupRow {
   id: string;
   title: string;
-  starts_on: string | null;
-  ends_on: string | null;
+  clip_seconds: number;
   clip_count: number;
 }
 
-function dateRange(from: string | null, to: string | null): string {
-  if (!from && !to) return '';
-  const format = (iso: string) =>
-    new Intl.DateTimeFormat('nl-NL', { day: 'numeric', month: 'short' }).format(new Date(iso));
-  if (from && to) return `${format(from)} – ${format(to)}`;
-  return format((from ?? to)!);
-}
-
-export default function AlbumList() {
-  const [albums, setAlbums] = useState<AlbumRow[]>([]);
+export default function GroupList() {
+  const [groups, setGroups] = useState<GroupRow[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const router = useRouter();
 
   const load = useCallback(async () => {
     setRefreshing(true);
-    // RLS scopes this to albums you are a member of; no filter needed here.
+    // RLS scopes this to groups you are a member of; no filter needed here.
     const { data } = await supabase
       .from('albums')
-      .select('id, title, starts_on, ends_on, clips(count)')
+      .select('id, title, clip_seconds, clips(count)')
       .order('created_at', { ascending: false });
 
-    setAlbums(
+    setGroups(
       (data ?? []).map((row) => ({
         id: row.id,
         title: row.title,
-        starts_on: row.starts_on,
-        ends_on: row.ends_on,
+        clip_seconds: row.clip_seconds,
         clip_count: (row.clips as unknown as { count: number }[])?.[0]?.count ?? 0,
       })),
     );
@@ -54,15 +44,16 @@ export default function AlbumList() {
   return (
     <View style={styles.container}>
       <FlatList
-        data={albums}
-        keyExtractor={(album) => album.id}
+        data={groups}
+        keyExtractor={(group) => group.id}
         contentContainerStyle={styles.list}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={load} />}
         ListEmptyComponent={
           <View style={styles.empty}>
-            <Text style={styles.emptyTitle}>Nog geen albums</Text>
+            <Text style={styles.emptyTitle}>Nog geen groep</Text>
             <Text style={styles.emptyBody}>
-              Maak er een voor je volgende reis, feest of weekend, en nodig de rest uit.
+              Maak er een voor je volgende reis of feest, nodig de rest uit, en film samen
+              één aftermovie bij elkaar.
             </Text>
           </View>
         }
@@ -71,9 +62,8 @@ export default function AlbumList() {
             <Pressable style={styles.card}>
               <Text style={styles.cardTitle}>{item.title}</Text>
               <Text style={styles.cardMeta}>
-                {[dateRange(item.starts_on, item.ends_on), `${item.clip_count} clips`]
-                  .filter(Boolean)
-                  .join(' · ')}
+                {item.clip_count} {item.clip_count === 1 ? 'clip' : 'clips'} ·{' '}
+                {Math.round((item.clip_count * item.clip_seconds))}s film
               </Text>
             </Pressable>
           </Link>
@@ -81,7 +71,7 @@ export default function AlbumList() {
       />
 
       <Pressable style={styles.fab} onPress={() => router.push('/albums/new')}>
-        <Text style={styles.fabText}>Nieuw album</Text>
+        <Text style={styles.fabText}>Nieuwe groep</Text>
       </Pressable>
     </View>
   );

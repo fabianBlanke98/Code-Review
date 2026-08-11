@@ -3,23 +3,16 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { pool } from '../db.ts';
-import { concat, dayCard } from '../ffmpeg.ts';
+import { concat } from '../ffmpeg.ts';
 import { download, upload } from '../storage.ts';
 
 /**
- * The spec the client stored is the *resolved* cut: the exact ordered item
- * list that @mosaic/montage produced, not just the knobs. That removes any
- * chance of the worker rendering a different ordering than the one the user
- * previewed, and it is what specHash is computed over.
+ * The spec the client stored is the *resolved* film: the exact ordered clip
+ * list @mosaic/montage produced. The worker renders that verbatim rather than
+ * recomputing it, so the export can never differ from what people watched.
  */
 interface ResolvedSpec {
-  targetSeconds: number | null;
-  mode: string;
-  dayCardMs: number;
-  items: Array<
-    | { kind: 'clip'; clipId: string; durationMs: number }
-    | { kind: 'day_card'; day: string; durationMs: number }
-  >;
+  items: Array<{ clipId: string; durationMs: number }>;
 }
 
 interface RenderRow {
@@ -28,19 +21,6 @@ interface RenderRow {
   spec: ResolvedSpec;
   spec_hash: string;
   status: string;
-}
-
-const DAY_LABELS = [
-  'zondag', 'maandag', 'dinsdag', 'woensdag', 'donderdag', 'vrijdag', 'zaterdag',
-];
-const MONTH_LABELS = [
-  'januari', 'februari', 'maart', 'april', 'mei', 'juni',
-  'juli', 'augustus', 'september', 'oktober', 'november', 'december',
-];
-
-function dayCardLabel(isoDay: string): string {
-  const date = new Date(`${isoDay}T12:00:00Z`);
-  return `${DAY_LABELS[date.getUTCDay()]} ${date.getUTCDate()} ${MONTH_LABELS[date.getUTCMonth()]}`;
 }
 
 export async function renderMontage(payload: Record<string, unknown>): Promise<void> {
@@ -59,14 +39,11 @@ export async function renderMontage(payload: Record<string, unknown>): Promise<v
   const work = await mkdtemp(path.join(tmpdir(), 'mosaic-render-'));
 
   try {
-    const clipIds = render.spec.items
-      .filter((i): i is Extract<ResolvedSpec['items'][number], { kind: 'clip' }> => i.kind === 'clip')
-      .map((i) => i.clipId);
-
+    const clipIds = render.spec.items.map((item) => item.clipId);
     if (clipIds.length === 0) throw new Error('render spec contains no clips');
 
     // Re-check visibility server-side. A clip may have been deleted or hidden
-    // between the client resolving the cut and this job running, and a render
+    // between the client resolving the film and this job running, and a render
     // must never resurrect a clip somebody removed.
     const { rows: clipRows } = await pool.query<{ id: string; storage_key: string }>(
       `select c.id, c.storage_key
@@ -85,29 +62,22 @@ export async function renderMontage(payload: Record<string, unknown>): Promise<v
     let index = 0;
 
     for (const item of render.spec.items) {
-      const segment = path.join(work, `${String(index++).padStart(4, '0')}.mp4`);
-
-      if (item.kind === 'day_card') {
-        await dayCard(segment, dayCardLabel(item.day), item.durationMs);
-        segments.push(segment);
-        continue;
-      }
-
       const key = keyById.get(item.clipId);
-      if (!key) continue; // removed since the cut was resolved — skip, don't fail
+      if (!key) continue; // removed since the film was resolved — skip, don't fail
+      const segment = path.join(work, `${String(index++).padStart(4, '0')}.mp4`);
       await download(key, segment);
       segments.push(segment);
     }
 
-    if (segments.length === 0) throw new Error('every clip in this cut has since been removed');
+    if (segments.length === 0) throw new Error('every clip in this film has since been removed');
 
-    const output = path.join(work, 'montage.mp4');
+    const output = path.join(work, 'film.mp4');
     await concat(segments, output, work);
 
     const outputKey = `albums/${render.album_id}/renders/${render.spec_hash}.mp4`;
     await upload(outputKey, output, 'video/mp4');
 
-    const durationMs = render.spec.items.reduce((sum, i) => sum + i.durationMs, 0);
+    const durationMs = render.spec.items.reduce((sum, item) => sum + item.durationMs, 0);
 
     await pool.query(
       `update renders set status = 'ready', output_key = $2, duration_ms = $3 where id = $1`,

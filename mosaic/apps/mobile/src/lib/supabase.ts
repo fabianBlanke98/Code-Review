@@ -38,7 +38,7 @@ export const MESSAGES: Record<string, string> = {
   invite_expired: 'Deze uitnodiging is verlopen. Vraag om een nieuwe link.',
   invite_revoked: 'Deze uitnodiging is ingetrokken.',
   invite_exhausted: 'Deze uitnodiging is al door het maximum aantal mensen gebruikt.',
-  not_a_member: 'Je hebt geen toegang tot dit album.',
+  not_a_member: 'Je hebt geen toegang tot deze groep.',
   not_clip_author: 'Je kunt alleen je eigen clips verwijderen.',
   unknown_error: 'Er ging iets mis. Probeer het opnieuw.',
 };

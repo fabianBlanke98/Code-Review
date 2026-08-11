@@ -37,8 +37,8 @@ set role authenticated;
 
 -- === album creation ========================================================
 select tests.as_user(:'alice');
-insert into albums (id, title, created_by, starts_on, ends_on)
-values (:'album', 'Kreta 2026', :'alice', date '2026-07-11', date '2026-07-14');
+insert into albums (id, title, created_by, clip_seconds)
+values (:'album', 'Kreta 2026', :'alice', 3);
 
 select tests.eq(
   'creator is automatically admin',
@@ -52,26 +52,36 @@ insert into memberships (album_id, user_id, role) values
 
 -- === contribution rights ===================================================
 select tests.as_user(:'bob');
-insert into clips (id, album_id, author_id, storage_key, captured_at, utc_offset_minutes, duration_ms)
-values (:'clip_b1', :'album', :'bob', 'clips/b1.mp4', timestamptz '2026-07-12 09:30:00+02', 120, 1000);
+insert into clips (id, album_id, author_id, storage_key, duration_ms)
+values (:'clip_b1', :'album', :'bob', 'clips/b1.mp4', 3000);
 
 select tests.as_user(:'carol');
-insert into clips (id, album_id, author_id, storage_key, captured_at, utc_offset_minutes, duration_ms)
-values (:'clip_c1', :'album', :'carol', 'clips/c1.mp4', timestamptz '2026-07-12 18:05:00+02', 120, 1000);
+insert into clips (id, album_id, author_id, storage_key, duration_ms)
+values (:'clip_c1', :'album', :'carol', 'clips/c1.mp4', 3000);
 
 select tests.as_user(:'dave');
 select tests.raises(
   'viewer cannot upload a clip',
-  format('insert into clips (album_id, author_id, storage_key, captured_at, duration_ms)
-          values (%L, %L, ''clips/d1.mp4'', now(), 1000)', :'album', :'dave'),
+  format('insert into clips (album_id, author_id, storage_key, duration_ms)
+          values (%L, %L, ''clips/d1.mp4'', 3000)', :'album', :'dave'),
   'row-level security');
 
 select tests.as_user(:'bob');
 select tests.raises(
   'you cannot upload a clip as somebody else',
-  format('insert into clips (album_id, author_id, storage_key, captured_at, duration_ms)
-          values (%L, %L, ''clips/forged.mp4'', now(), 1000)', :'album', :'carol'),
+  format('insert into clips (album_id, author_id, storage_key, duration_ms)
+          values (%L, %L, ''clips/forged.mp4'', 3000)', :'album', :'carol'),
   'row-level security');
+
+-- Appending is the only way in: you cannot pick your own spot in the film.
+select tests.as_user(:'carol');
+insert into clips (album_id, author_id, storage_key, duration_ms, sequence)
+values (:'album', :'carol', 'clips/queue-jump.mp4', 3000, -1);
+reset role;
+select tests.eq('a client cannot choose where its clip lands',
+  (select count(*) from clips where sequence <= 0), 0::bigint);
+delete from clips where storage_key = 'clips/queue-jump.mp4';
+set role authenticated;
 
 -- The worker marks clips ready; do that as the owner to mimic service_role.
 reset role;
@@ -147,8 +157,8 @@ select tests.eq('the author can delete their own clip',
 
 -- === column protection =====================================================
 select tests.as_user(:'bob');
-insert into clips (id, album_id, author_id, storage_key, captured_at, utc_offset_minutes, duration_ms)
-values (:'clip_b2', :'album', :'bob', 'clips/b2.mp4', timestamptz '2026-07-13 11:00:00+02', 120, 1000);
+insert into clips (id, album_id, author_id, storage_key, duration_ms)
+values (:'clip_b2', :'album', :'bob', 'clips/b2.mp4', 3000);
 
 update clips set status = 'ready' where id = :'clip_b2';
 select tests.eq('a client cannot promote its own clip to ready',
@@ -158,25 +168,27 @@ update clips set status = 'processing' where id = :'clip_b2';
 select tests.eq('a client may hand a finished upload to the worker',
   (select status from clips where id = :'clip_b2'), 'processing');
 
-update clips set is_favorite = true where id = :'clip_b1';
-select tests.is_true('the author can favourite their own clip',
-  (select is_favorite from clips where id = :'clip_b1'));
+update clips set sequence = 999999 where id = :'clip_b1';
+reset role;
+select tests.eq('a clip cannot be moved in the film after the fact',
+  (select count(*) from clips where id = :'clip_b1' and sequence = 999999), 0::bigint);
+set role authenticated;
 
 update clips set storage_key = 'clips/hijacked.mp4' where id = :'clip_b1';
 select tests.eq('storage_key is not client-writable',
   (select storage_key from clips where id = :'clip_b1'), 'clips/b1.mp4');
 
--- Bob favourited b1 above; Carol must not be able to un-favourite it.
 select tests.eq('the author sees their own in-flight upload',
   (select count(*) from clips where album_id = :'album'), 2::bigint);
 select tests.as_user(:'carol');
 select tests.eq('others do not see an in-flight upload',
   (select count(*) from clips where album_id = :'album'), 1::bigint);
 
-update clips set is_favorite = false where id = :'clip_b1';
 reset role;
-select tests.eq('a non-author cannot change someone else''s favourite flag',
-  (select is_favorite from clips where id = :'clip_b1')::text, 'true');
+select tests.eq('the film keeps clips in the order they were added',
+  (select string_agg(storage_key, ',' order by sequence) from clips
+     where album_id = :'album' and deleted_at is null),
+  'clips/b1.mp4,clips/b2.mp4');
 select tests.eq('normalization job was queued for the handed-off clip',
   (select count(*) from jobs where kind = 'normalize_clip' and payload ->> 'clip_id' = :'clip_b2'),
   1::bigint);

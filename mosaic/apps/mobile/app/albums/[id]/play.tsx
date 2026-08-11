@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
-import { DEFAULT_SPEC, buildMontage } from '@mosaic/montage';
+import { buildMontage } from '@mosaic/montage';
 import { MontagePlayer } from '../../../src/components/MontagePlayer.tsx';
 import { useAlbum } from '../../../src/hooks/useAlbum.ts';
 
@@ -13,7 +13,7 @@ export default function PlayScreen() {
 
   const ready = useMemo(() => clips.filter((c) => c.status === 'ready'), [clips]);
 
-  const montage = useMemo(() => buildMontage(ready, DEFAULT_SPEC), [ready]);
+  const montage = useMemo(() => buildMontage(ready), [ready]);
 
   const urls = useMemo(
     () =>

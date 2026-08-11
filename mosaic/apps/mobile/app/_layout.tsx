@@ -27,9 +27,9 @@ function Gate() {
 
   return (
     <Stack screenOptions={{ headerShadowVisible: false }}>
-      <Stack.Screen name="index" options={{ title: 'Albums' }} />
+      <Stack.Screen name="index" options={{ title: 'Groepen' }} />
       <Stack.Screen name="sign-in" options={{ headerShown: false }} />
-      <Stack.Screen name="albums/new" options={{ title: 'Nieuw album', presentation: 'modal' }} />
+      <Stack.Screen name="albums/new" options={{ title: 'Nieuwe groep', presentation: 'modal' }} />
       <Stack.Screen name="albums/[id]/index" options={{ title: '' }} />
       <Stack.Screen name="albums/[id]/camera" options={{ headerShown: false, presentation: 'fullScreenModal' }} />
       <Stack.Screen name="albums/[id]/play" options={{ headerShown: false, presentation: 'fullScreenModal' }} />

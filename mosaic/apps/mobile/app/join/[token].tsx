@@ -75,7 +75,7 @@ export default function JoinScreen() {
       </Text>
       <Text style={styles.title}>{preview.album_title}</Text>
       <Text style={styles.body}>
-        Voeg clips van 1 tot 3 seconden toe. Samen wordt het één film.
+        Iedereen filmt korte clips. Ze komen achter elkaar in één film.
       </Text>
 
       {sessionLoading || joining ? (

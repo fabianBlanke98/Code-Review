@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   Camera,
@@ -8,28 +8,31 @@ import {
   useMicrophonePermission,
 } from 'react-native-vision-camera';
 
+import { DEFAULT_CLIP_SECONDS } from '@mosaic/montage';
+import { useAlbum } from '../../../src/hooks/useAlbum.ts';
 import { uploadClip } from '../../../src/lib/upload.ts';
 import { humanError } from '../../../src/lib/supabase.ts';
-
-const MAX_MS = 3000;
-const MIN_MS = 400;
 
 export default function CameraScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { album } = useAlbum(id);
+
+  const clipSeconds = album?.clipSeconds ?? DEFAULT_CLIP_SECONDS;
+  const clipMs = clipSeconds * 1000;
 
   const camera = useRef<Camera>(null);
-  // Portrait only. Mixed orientations are unfixable once they are in the album:
-  // there is no crop that makes a landscape clip sit well in a 9:16 montage.
+  // Portrait only. Mixed orientations are unfixable once they are in the film:
+  // there is no crop that makes a landscape clip sit well in a 9:16 reel.
   const device = useCameraDevice('back');
   const { hasPermission: hasCamera, requestPermission: requestCamera } = useCameraPermission();
   const { hasPermission: hasMic, requestPermission: requestMic } = useMicrophonePermission();
 
   const [recording, setRecording] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const startedAt = useRef(0);
-  const capturedAt = useRef(new Date());
-  const autoStop = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [remaining, setRemaining] = useState(clipSeconds);
+  const stopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tick = useRef<ReturnType<typeof setInterval> | null>(null);
   const ring = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -37,39 +40,53 @@ export default function CameraScreen() {
     if (!hasMic) void requestMic();
   }, [hasCamera, hasMic, requestCamera, requestMic]);
 
-  useEffect(
-    () => () => {
-      if (autoStop.current) clearTimeout(autoStop.current);
-    },
-    [],
-  );
+  useEffect(() => setRemaining(clipSeconds), [clipSeconds]);
 
-  const start = async () => {
+  const clearTimers = () => {
+    if (stopTimer.current) { clearTimeout(stopTimer.current); stopTimer.current = null; }
+    if (tick.current) { clearInterval(tick.current); tick.current = null; }
+  };
+
+  useEffect(() => clearTimers, []);
+
+  /**
+   * One tap records exactly the group's clip length and stops itself. Nothing
+   * to hold, nothing to trim, no decision to make — which is the whole reason
+   * the length is a group setting rather than a slider on this screen.
+   */
+  const record = async () => {
     if (!camera.current || recording || uploading) return;
 
     setRecording(true);
-    startedAt.current = Date.now();
-    // Capture time is stamped here, at the moment of filming — not at upload,
-    // and not when the worker gets round to it.
-    capturedAt.current = new Date();
+    setRemaining(clipSeconds);
 
     ring.setValue(0);
-    Animated.timing(ring, { toValue: 1, duration: MAX_MS, useNativeDriver: false }).start();
+    Animated.timing(ring, {
+      toValue: 1,
+      duration: clipMs,
+      easing: Easing.linear,
+      useNativeDriver: false,
+    }).start();
+
+    tick.current = setInterval(
+      () => setRemaining((left) => Math.max(0, left - 1)),
+      1000,
+    );
 
     camera.current.startRecording({
       fileType: 'mp4',
       videoCodec: 'h264',
       onRecordingFinished: async (video) => {
-        const durationMs = Math.min(Date.now() - startedAt.current, MAX_MS);
+        clearTimers();
         setRecording(false);
         setUploading(true);
         try {
           await uploadClip({
             albumId: id,
             fileUri: video.path.startsWith('file://') ? video.path : `file://${video.path}`,
-            capturedAt: capturedAt.current,
-            durationMs,
+            durationMs: clipMs,
           });
+          // Straight back to the film, where the new clip is now the last one.
           router.back();
         } catch (error) {
           Alert.alert('Uploaden mislukt', humanError(error));
@@ -77,28 +94,15 @@ export default function CameraScreen() {
         }
       },
       onRecordingError: (error) => {
+        clearTimers();
         setRecording(false);
         Alert.alert('Opnemen mislukt', String(error.message ?? error));
       },
     });
 
-    // Hard cap. One to three seconds is the format; longer clips make the
-    // montage sag and give people something to edit, which is the thing this
-    // app exists to avoid.
-    autoStop.current = setTimeout(() => void stop(), MAX_MS);
-  };
-
-  const stop = async () => {
-    if (!camera.current || !recording) return;
-    if (autoStop.current) {
-      clearTimeout(autoStop.current);
-      autoStop.current = null;
-    }
-    // Below MIN_MS the result is a black frame; wait it out rather than ship it.
-    const elapsed = Date.now() - startedAt.current;
-    if (elapsed < MIN_MS) await new Promise((r) => setTimeout(r, MIN_MS - elapsed));
-    ring.stopAnimation();
-    await camera.current.stopRecording();
+    stopTimer.current = setTimeout(() => {
+      void camera.current?.stopRecording();
+    }, clipMs);
   };
 
   if (!device || !hasCamera) {
@@ -132,13 +136,16 @@ export default function CameraScreen() {
 
       <View style={styles.controls}>
         <Text style={styles.hint}>
-          {uploading ? 'Uploaden…' : recording ? 'Laat los om te stoppen' : 'Houd vast om op te nemen'}
+          {uploading
+            ? 'Uploaden…'
+            : recording
+              ? `${remaining}`
+              : `Tik om ${clipSeconds} seconden op te nemen`}
         </Text>
 
         <Pressable
-          onPressIn={start}
-          onPressOut={stop}
-          disabled={uploading}
+          onPress={record}
+          disabled={recording || uploading}
           style={[styles.shutter, recording && styles.shutterActive]}
         >
           <Animated.View
@@ -164,7 +171,7 @@ const styles = StyleSheet.create({
   close: { position: 'absolute', top: 56, left: 20, padding: 10 },
   closeText: { color: '#fff', fontSize: 16, fontWeight: '500' },
   controls: { position: 'absolute', bottom: 56, left: 0, right: 0, alignItems: 'center', gap: 18 },
-  hint: { color: 'rgba(255,255,255,0.85)', fontSize: 14 },
+  hint: { color: 'rgba(255,255,255,0.9)', fontSize: 15, fontVariant: ['tabular-nums'] },
   shutter: {
     width: 76,
     height: 76,

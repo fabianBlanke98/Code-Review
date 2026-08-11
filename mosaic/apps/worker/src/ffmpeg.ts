@@ -24,7 +24,7 @@ export const PROFILE = {
   audioCodec: 'aac',
   audioRate: 48_000,
   audioChannels: 2,
-  maxDurationMs: 3000,
+  maxDurationMs: 5000,
 } as const;
 
 export class FfmpegError extends Error {
@@ -57,8 +57,6 @@ export interface ProbeResult {
   durationMs: number;
   width: number;
   height: number;
-  /** Capture time from the container, when the recorder wrote one. */
-  creationTime: string | null;
   hasAudio: boolean;
 }
 
@@ -72,27 +70,18 @@ export async function probe(input: string): Promise<ProbeResult> {
   ]);
 
   const parsed = JSON.parse(raw) as {
-    format?: { duration?: string; tags?: Record<string, string> };
-    streams?: Array<{
-      codec_type?: string;
-      width?: number;
-      height?: number;
-      tags?: Record<string, string>;
-    }>;
+    format?: { duration?: string };
+    streams?: Array<{ codec_type?: string; width?: number; height?: number }>;
   };
 
   const streams = parsed.streams ?? [];
   const video = streams.find((s) => s.codec_type === 'video');
   if (!video) throw new Error('input has no video stream');
 
-  const tags = { ...parsed.format?.tags, ...video.tags };
-  const creation = tags?.creation_time ?? null;
-
   return {
     durationMs: Math.round(Number(parsed.format?.duration ?? 0) * 1000),
     width: video.width ?? 0,
     height: video.height ?? 0,
-    creationTime: creation && !Number.isNaN(Date.parse(creation)) ? creation : null,
     hasAudio: streams.some((s) => s.codec_type === 'audio'),
   };
 }
@@ -104,11 +93,16 @@ export async function probe(input: string): Promise<ProbeResult> {
  *  - `-map_metadata -1` drops every input tag, which is how GPS coordinates
  *    stop travelling with a holiday clip.
  *  - `-g 1 -keyint_min 1` puts a keyframe on every frame. Wasteful for a normal
- *    video, irrelevant for one second, and it means any clip can start a GOP.
+ *    video, irrelevant for a few seconds, and it means any clip can start a GOP.
  *  - silent audio is synthesised when the source has none, because the concat
  *    demuxer needs the same stream layout in every segment.
  */
-export async function normalize(input: string, output: string, hasAudio: boolean): Promise<void> {
+export async function normalize(
+  input: string,
+  output: string,
+  hasAudio: boolean,
+  durationMs: number = PROFILE.maxDurationMs,
+): Promise<void> {
   const vf = [
     `scale=${PROFILE.width}:${PROFILE.height}:force_original_aspect_ratio=increase`,
     `crop=${PROFILE.width}:${PROFILE.height}`,
@@ -126,7 +120,7 @@ export async function normalize(input: string, output: string, hasAudio: boolean
   }
 
   args.push(
-    '-t', (PROFILE.maxDurationMs / 1000).toFixed(3),
+    '-t', (Math.min(durationMs, PROFILE.maxDurationMs) / 1000).toFixed(3),
     '-vf', vf,
     '-c:v', PROFILE.videoCodec,
     '-profile:v', PROFILE.profile,
@@ -156,37 +150,6 @@ export async function thumbnail(input: string, output: string): Promise<void> {
     '-frames:v', '1',
     '-vf', 'scale=540:-2',
     '-map_metadata', '-1',
-    output,
-  ]);
-}
-
-/** A day title card, rendered to the same profile so it can be concatenated. */
-export async function dayCard(
-  output: string,
-  label: string,
-  durationMs: number,
-): Promise<void> {
-  const seconds = (durationMs / 1000).toFixed(3);
-  const escaped = label.replace(/[\\:']/g, (m) => `\\${m}`);
-
-  await run('ffmpeg', [
-    '-y', '-hide_banner', '-loglevel', 'error',
-    '-f', 'lavfi', '-i', `color=c=black:s=${PROFILE.width}x${PROFILE.height}:r=${PROFILE.fps}:d=${seconds}`,
-    '-f', 'lavfi', '-i', `anullsrc=r=${PROFILE.audioRate}:cl=stereo`,
-    '-vf', `drawtext=text='${escaped}':fontcolor=white:fontsize=72:x=(w-text_w)/2:y=(h-text_h)/2`,
-    '-t', seconds,
-    '-c:v', PROFILE.videoCodec,
-    '-profile:v', PROFILE.profile,
-    '-level:v', PROFILE.level,
-    '-pix_fmt', PROFILE.pixelFormat,
-    '-g', '1', '-keyint_min', '1', '-sc_threshold', '0',
-    '-preset', 'veryfast', '-crf', '23',
-    '-c:a', PROFILE.audioCodec,
-    '-ar', String(PROFILE.audioRate),
-    '-ac', String(PROFILE.audioChannels),
-    '-b:a', '128k',
-    '-map_metadata', '-1',
-    '-movflags', '+faststart',
     output,
   ]);
 }

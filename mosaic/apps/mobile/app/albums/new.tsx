@@ -1,20 +1,13 @@
 import { useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 
+import { CLIP_SECONDS_OPTIONS, DEFAULT_CLIP_SECONDS, type ClipSeconds } from '@mosaic/montage';
 import { supabase } from '../../src/lib/supabase.ts';
 
-const isoDay = (date: Date) => date.toISOString().slice(0, 10);
-
-export default function NewAlbum() {
+export default function NewGroup() {
   const [title, setTitle] = useState('');
-  const [startsOn, setStartsOn] = useState(new Date());
-  const [endsOn, setEndsOn] = useState(() => {
-    const week = new Date();
-    week.setDate(week.getDate() + 7);
-    return week;
-  });
+  const [clipSeconds, setClipSeconds] = useState<ClipSeconds>(DEFAULT_CLIP_SECONDS);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
@@ -33,12 +26,7 @@ export default function NewAlbum() {
     // there is nothing to insert into memberships here.
     const { data, error: insertError } = await supabase
       .from('albums')
-      .insert({
-        title: title.trim(),
-        created_by: auth.user.id,
-        starts_on: isoDay(startsOn),
-        ends_on: isoDay(endsOn),
-      })
+      .insert({ title: title.trim(), created_by: auth.user.id, clip_seconds: clipSeconds })
       .select('id')
       .single();
 
@@ -48,12 +36,13 @@ export default function NewAlbum() {
       return;
     }
 
-    router.replace(`/albums/${data.id}`);
+    // Straight to inviting: a group of one has nothing to make a film out of.
+    router.replace(`/albums/${data.id}/invite`);
   };
 
   return (
     <View style={styles.container}>
-      <Text style={styles.label}>Waar gaat dit album over?</Text>
+      <Text style={styles.label}>Waar gaan jullie heen?</Text>
       <TextInput
         style={styles.input}
         placeholder="Kreta 2026"
@@ -63,30 +52,25 @@ export default function NewAlbum() {
         autoFocus
       />
 
-      <Text style={styles.hint}>
-        Een album met een begin en een eind werkt het best: een reis, een feest, een seizoen.
-      </Text>
-
-      <View style={styles.dateRow}>
-        <View style={styles.dateField}>
-          <Text style={styles.label}>Van</Text>
-          <DateTimePicker
-            value={startsOn}
-            mode="date"
-            display={Platform.OS === 'ios' ? 'compact' : 'default'}
-            onChange={(_, date) => date && setStartsOn(date)}
-          />
+      <View style={styles.block}>
+        <Text style={styles.label}>Hoe lang duurt één opname?</Text>
+        <View style={styles.chips}>
+          {CLIP_SECONDS_OPTIONS.map((seconds) => (
+            <Pressable
+              key={seconds}
+              style={[styles.chip, clipSeconds === seconds && styles.chipActive]}
+              onPress={() => setClipSeconds(seconds)}
+            >
+              <Text style={[styles.chipText, clipSeconds === seconds && styles.chipTextActive]}>
+                {seconds}s
+              </Text>
+            </Pressable>
+          ))}
         </View>
-        <View style={styles.dateField}>
-          <Text style={styles.label}>Tot</Text>
-          <DateTimePicker
-            value={endsOn}
-            mode="date"
-            minimumDate={startsOn}
-            display={Platform.OS === 'ios' ? 'compact' : 'default'}
-            onChange={(_, date) => date && setEndsOn(date)}
-          />
-        </View>
+        <Text style={styles.hint}>
+          Geldt voor iedereen in de groep. Eén vaste lengte geeft de film ritme — en niemand
+          hoeft na te denken over hoe lang hij moet filmen.
+        </Text>
       </View>
 
       <Pressable
@@ -94,7 +78,7 @@ export default function NewAlbum() {
         disabled={title.trim().length === 0 || busy}
         onPress={create}
       >
-        {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Album aanmaken</Text>}
+        {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Groep aanmaken</Text>}
       </Pressable>
 
       {error && <Text style={styles.error}>{error}</Text>}
@@ -104,12 +88,23 @@ export default function NewAlbum() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 20, gap: 14 },
+  block: { gap: 10, marginTop: 10 },
   label: { fontSize: 14, fontWeight: '600', color: '#444' },
   input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 12, padding: 14, fontSize: 17 },
+  chips: { flexDirection: 'row', gap: 8 },
+  chip: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    alignItems: 'center',
+  },
+  chipActive: { backgroundColor: '#111', borderColor: '#111' },
+  chipText: { fontWeight: '600', fontSize: 15 },
+  chipTextActive: { color: '#fff' },
   hint: { fontSize: 13, color: '#888', lineHeight: 19 },
-  dateRow: { flexDirection: 'row', gap: 24, marginTop: 8 },
-  dateField: { gap: 6 },
-  button: { backgroundColor: '#111', borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 12 },
+  button: { backgroundColor: '#111', borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 16 },
   buttonDisabled: { opacity: 0.4 },
   buttonText: { color: '#fff', fontWeight: '600', fontSize: 16 },
   error: { color: '#c0392b' },

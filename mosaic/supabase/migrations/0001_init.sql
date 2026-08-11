@@ -1,4 +1,4 @@
--- Mosaic — shared 1-second video albums
+-- Mosaic — one shared film a group appends short clips to
 -- 0001_init: schema, RLS policies, invite redemption, job queue.
 --
 -- Assumes Supabase's `auth` schema exists (auth.uid(), auth.users).
@@ -23,13 +23,13 @@ create table albums (
   id                    uuid primary key default gen_random_uuid(),
   title                 text not null check (length(btrim(title)) between 1 and 80),
   cover_clip_id         uuid,
-  starts_on             date,
-  ends_on               date,
+  -- How long one recording lasts, chosen once for the whole group so the film
+  -- has a rhythm instead of a shrug.
+  clip_seconds          int not null default 3 check (clip_seconds between 1 and 5),
   allow_member_invites  boolean not null default true,
   created_by            uuid not null references users(id),
   created_at            timestamptz not null default now(),
-  deleted_at            timestamptz,
-  constraint albums_date_order check (starts_on is null or ends_on is null or starts_on <= ends_on)
+  deleted_at            timestamptz
 );
 
 create table memberships (
@@ -57,20 +57,22 @@ create table invites (
 
 create index invites_album_idx on invites (album_id);
 
+-- One global counter. Ordering within an album by a monotonic column is
+-- exactly "the order people added them", with no clock involved: no timezones,
+-- no phones disagreeing about the date, no clip moving after it was seen.
+create sequence clip_sequence;
+
 create table clips (
   id                 uuid primary key default gen_random_uuid(),
   album_id           uuid not null references albums(id) on delete cascade,
   author_id          uuid not null references users(id),
   storage_key        text not null,
   thumb_key          text,
-  duration_ms        int check (duration_ms between 200 and 3000),
-  -- Capture time, NOT upload time. Always UTC; utc_offset_minutes carries the
-  -- offset at the capture location so "which local day was this" survives travel.
-  captured_at        timestamptz not null,
-  utc_offset_minutes int not null default 0 check (utc_offset_minutes between -840 and 840),
+  duration_ms        int check (duration_ms between 200 and 5000),
+  -- Position in the film. Assigned by a trigger, never by the client.
+  sequence           bigint not null,
   width              int,
   height             int,
-  is_favorite        boolean not null default false,
   status             text not null default 'uploading'
                        check (status in ('uploading', 'processing', 'ready', 'failed')),
   failure_reason     text,
@@ -78,7 +80,7 @@ create table clips (
   deleted_at         timestamptz
 );
 
-create index clips_album_captured_idx on clips (album_id, captured_at);
+create index clips_album_sequence_idx on clips (album_id, sequence);
 create index clips_author_idx on clips (author_id);
 
 alter table albums
@@ -234,6 +236,25 @@ create trigger albums_grant_creator_admin
 after insert on albums
 for each row execute function app.grant_creator_admin();
 
+-- The film is append-only, so a clip's position is the server's to decide.
+-- Without this a client could insert with a low `sequence` and place itself at
+-- the front of everyone else's film.
+create function app.assign_clip_sequence()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  new.sequence := nextval('clip_sequence');
+  return new;
+end
+$$;
+
+create trigger clips_assign_sequence
+before insert on clips
+for each row execute function app.assign_clip_sequence();
+
 -- Queue normalization as soon as the client reports the upload finished.
 create function app.enqueue_normalize()
 returns trigger
@@ -281,8 +302,8 @@ create trigger clips_bump_push_digest
 after update of status on clips
 for each row execute function app.bump_push_digest();
 
--- A client may only ever flip `uploading` -> `processing`, plus toggle its own
--- favourite/soft-delete. Everything else on a clip is the worker's to write, so
+-- A client may only ever flip `uploading` -> `processing`, plus soft-delete its
+-- own clip. Everything else on a clip is the worker's to write, so
 -- nobody can self-promote a clip to `ready` and skip normalization. RLS decides
 -- *which rows* you may touch; this decides *which columns*.
 create function app.protect_clip_columns()
@@ -301,16 +322,15 @@ begin
   new.width       := old.width;
   new.height      := old.height;
   new.created_at  := old.created_at;
+  -- A clip's place in the film is fixed the moment it is added.
+  new.sequence    := old.sequence;
 
   if not (old.status = 'uploading' and new.status = 'processing') then
     new.status := old.status;
   end if;
 
-  -- captured_at and duration_ms are only settable while still uploading
   if old.status <> 'uploading' then
-    new.captured_at        := old.captured_at;
-    new.utc_offset_minutes := old.utc_offset_minutes;
-    new.duration_ms        := old.duration_ms;
+    new.duration_ms := old.duration_ms;
   end if;
 
   return new;
@@ -438,10 +458,8 @@ create function public.album_montage_clips(p_album uuid)
 returns table (
   id uuid,
   author_id uuid,
-  captured_at timestamptz,
-  utc_offset_minutes int,
+  sequence bigint,
   duration_ms int,
-  is_favorite boolean,
   storage_key text
 )
 language plpgsql
@@ -457,14 +475,13 @@ begin
   end if;
 
   return query
-    select c.id, c.author_id, c.captured_at, c.utc_offset_minutes,
-           c.duration_ms, c.is_favorite, c.storage_key
+    select c.id, c.author_id, c.sequence, c.duration_ms, c.storage_key
     from clips c
     where c.album_id = p_album
       and c.status = 'ready'
       and c.deleted_at is null
       and not exists (select 1 from clip_hides h where h.clip_id = c.id)
-    order by c.captured_at, c.id;
+    order by c.sequence, c.id;
 end
 $$;
 

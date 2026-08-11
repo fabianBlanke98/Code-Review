@@ -81,6 +81,7 @@ const EXPECTED_TRIGGERS = [
   'clips_enqueue_normalize',
   'clips_bump_push_digest',
   'clips_protect_columns',
+  'clips_assign_sequence',
 ];
 
 async function checkDatabase() {

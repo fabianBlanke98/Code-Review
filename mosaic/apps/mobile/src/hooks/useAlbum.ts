@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import type { MontageClip } from '@mosaic/montage';
+import type { ClipSeconds, MontageClip } from '@mosaic/montage';
 import { supabase } from '../lib/supabase.ts';
 
 export interface AlbumClip extends MontageClip {
@@ -14,8 +14,8 @@ export interface AlbumClip extends MontageClip {
 export interface Album {
   id: string;
   title: string;
-  startsOn: string | null;
-  endsOn: string | null;
+  clipSeconds: ClipSeconds;
+  memberCount: number;
   role: 'admin' | 'member' | 'viewer';
 }
 
@@ -23,15 +23,13 @@ interface ClipRow {
   id: string;
   album_id: string;
   author_id: string;
-  captured_at: string;
-  utc_offset_minutes: number;
+  sequence: number;
   duration_ms: number | null;
-  is_favorite: boolean;
   status: AlbumClip['status'];
 }
 
 /**
- * Album clips, kept live.
+ * The film, kept live.
  *
  * Realtime only tells us *that* something changed; we refetch through RLS
  * rather than trusting the payload, because the payload is not policy-filtered
@@ -40,7 +38,6 @@ interface ClipRow {
 export function useAlbum(albumId: string) {
   const [album, setAlbum] = useState<Album | null>(null);
   const [clips, setClips] = useState<AlbumClip[]>([]);
-  const [names, setNames] = useState<Record<string, string>>({});
   const [urls, setUrls] = useState<{ clips: Record<string, string>; thumbs: Record<string, string> }>({
     clips: {},
     thumbs: {},
@@ -50,16 +47,17 @@ export function useAlbum(albumId: string) {
 
   // Signed URLs expire; don't refetch them on every realtime tick.
   const urlsFetchedAt = useRef(0);
+  const readyCount = useRef(0);
 
   const refresh = useCallback(async () => {
     try {
       const [albumResult, clipResult, memberResult] = await Promise.all([
-        supabase.from('albums').select('id, title, starts_on, ends_on').eq('id', albumId).maybeSingle(),
+        supabase.from('albums').select('id, title, clip_seconds').eq('id', albumId).maybeSingle(),
         supabase
           .from('clips')
-          .select('id, album_id, author_id, captured_at, utc_offset_minutes, duration_ms, is_favorite, status')
+          .select('id, album_id, author_id, sequence, duration_ms, status')
           .eq('album_id', albumId)
-          .order('captured_at', { ascending: true }),
+          .order('sequence', { ascending: true }),
         supabase.from('memberships').select('user_id, role, users(display_name)').eq('album_id', albumId),
       ]);
 
@@ -67,22 +65,21 @@ export function useAlbum(albumId: string) {
       if (clipResult.error) throw clipResult.error;
 
       const { data: auth } = await supabase.auth.getUser();
-      const myRole =
-        (memberResult.data ?? []).find((m) => m.user_id === auth.user?.id)?.role ?? 'viewer';
+      const members = memberResult.data ?? [];
+      const myRole = members.find((m) => m.user_id === auth.user?.id)?.role ?? 'viewer';
 
       const nameMap: Record<string, string> = {};
-      for (const member of memberResult.data ?? []) {
+      for (const member of members) {
         const profile = member.users as { display_name?: string } | null;
         nameMap[member.user_id] = profile?.display_name ?? 'Onbekend';
       }
-      setNames(nameMap);
 
       if (albumResult.data) {
         setAlbum({
           id: albumResult.data.id,
           title: albumResult.data.title,
-          startsOn: albumResult.data.starts_on,
-          endsOn: albumResult.data.ends_on,
+          clipSeconds: albumResult.data.clip_seconds as ClipSeconds,
+          memberCount: members.length,
           role: myRole as Album['role'],
         });
       }
@@ -94,17 +91,16 @@ export function useAlbum(albumId: string) {
           albumId: row.album_id,
           authorId: row.author_id,
           authorName: nameMap[row.author_id] ?? 'Onbekend',
-          capturedAt: row.captured_at,
-          utcOffsetMinutes: row.utc_offset_minutes,
-          durationMs: row.duration_ms ?? 1000,
-          isFavorite: row.is_favorite,
+          sequence: row.sequence,
+          durationMs: row.duration_ms ?? 3000,
           status: row.status,
         })),
       );
 
-      const readyCount = rows.filter((r) => r.status === 'ready').length;
+      const ready = rows.filter((r) => r.status === 'ready').length;
       const stale = Date.now() - urlsFetchedAt.current > 45 * 60 * 1000;
-      if (readyCount > 0 && (stale || readyCount !== Object.keys(urls.clips).length)) {
+      if (ready > 0 && (stale || ready !== readyCount.current)) {
+        readyCount.current = ready;
         const { data: signed } = await supabase.functions.invoke('media-urls', {
           body: { albumId },
         });
@@ -120,7 +116,7 @@ export function useAlbum(albumId: string) {
     } finally {
       setLoading(false);
     }
-  }, [albumId, urls.clips]);
+  }, [albumId]);
 
   useEffect(() => {
     void refresh();
@@ -142,10 +138,7 @@ export function useAlbum(albumId: string) {
     return () => {
       void supabase.removeChannel(channel);
     };
-    // `refresh` is intentionally excluded: it changes identity on every url
-    // update, which would tear down and rebuild the subscription each time.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [albumId]);
+  }, [albumId, refresh]);
 
   const withMedia = useMemo(
     () =>
@@ -157,5 +150,5 @@ export function useAlbum(albumId: string) {
     [clips, urls],
   );
 
-  return { album, clips: withMedia, names, loading, error, refresh };
+  return { album, clips: withMedia, loading, error, refresh };
 }

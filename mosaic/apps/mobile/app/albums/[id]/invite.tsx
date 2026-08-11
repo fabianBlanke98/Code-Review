@@ -65,7 +65,7 @@ export default function InviteScreen() {
 
     if (data?.token) {
       await Share.share({
-        message: `Doe mee met dit album: ${inviteUrl(data.token)}`,
+        message: `Film mee aan onze aftermovie: ${inviteUrl(data.token)}`,
       });
     }
   };
@@ -82,8 +82,8 @@ export default function InviteScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.intro}>
-        Iedereen met de link kan clips toevoegen. De link verloopt na {INVITE_DAYS} dagen en werkt
-        maximaal {MAX_USES} keer.
+        Iedereen met de link kan clips aan de film toevoegen. De link verloopt na {INVITE_DAYS}
+        dagen en werkt maximaal {MAX_USES} keer.
       </Text>
 
       <Pressable style={styles.button} onPress={create} disabled={busy}>
